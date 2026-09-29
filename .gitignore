@@ -4,6 +4,9 @@ dist/
 # generated types
 .astro/
 
+# wrangler (Cloudflare's CLI for developing and deploying Workers)
+.wrangler/
+
 # dependencies
 node_modules/
 
