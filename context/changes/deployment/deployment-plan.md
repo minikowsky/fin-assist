@@ -1,0 +1,226 @@
+# Plan: First Cloudflare Workers deployment of fin-assist
+
+## Context
+
+`context/foundation/infrastructure.md` picked **Cloudflare Workers** (Static Assets, not Pages). The repo already builds for workerd (`@astrojs/cloudflare` 14.3.1, wrangler 4.131.1, astro 7.3.2, all checked in `node_modules`), but nothing is deployed yet:
+
+- `wrangler.jsonc` still says `"name": "10x-astro-starter"`.
+- wrangler isn't logged in.
+- There's no hosted Supabase project. `.env` has placeholders under the **wrong names** (`PUBLIC_SUPABASE_*`, while the app reads `SUPABASE_URL` / `SUPABASE_KEY`).
+
+The goal is a working production URL at `https://fin-assist.<subdomain>.workers.dev` with Supabase auth working end to end, a known rollback target, and every edge case found during research handled up front.
+
+Decisions made:
+- Create a **new Supabase project in eu-central-1**.
+- Start on the **Workers Free plan**, with a hard gate to move to Paid before CSV import ships.
+- **Deploy model:** the first production deploy is **manual** (`wrangler deploy` from the CLI). After that, **auto-deploy on push to `master` is handled by Cloudflare Workers Builds** (Git integration). There's **no GitHub Actions deploy**: the existing `.github/workflows/ci.yml` stays as is (lint, build, local smoke test) and never deploys. A manual deploy stays available as an escape hatch (see Phase 6).
+
+The repo is `github.com/minikowsky/fin-assist`. It's **public**, the default branch is `master`, and `master` has no branch protection.
+
+Who runs each step: 🤖 = agent may run it unattended, 👤 = human runs it or approves it (production mutations and secrets, per CLAUDE.md).
+
+**Tracking:** this plan is stored at `context/changes/deployment/deployment-plan.md`. That file is the live tracker: its checkboxes get ticked, and outcomes (URL, version IDs) are filled in, as each phase completes.
+
+---
+
+## Phase 0: Prerequisites (accounts, CLIs, local Supabase)
+
+Machine state checked on 2026-10-23:
+
+| Tool | State | Action |
+|---|---|---|
+| Node | v24.22.0 installed, but `.nvmrc` pins 22.14.0; no version manager | 0.2 |
+| wrangler | 4.131.1, run through `npx`; **not logged in** | 0.3 |
+| Supabase CLI | 2.117.0, run through `npx`; **not logged in** | 0.4 |
+| Docker | 29.1.3 installed; **your user can't reach the daemon** (not in the `docker` group) | 0.5 |
+| `supabase/.temp` | **owned by root** (an earlier `sudo` run), so the CLI can't write to it | 0.5 |
+| gh | logged in as `minikowsky`, scopes `repo` and `workflow` | none |
+
+### 0.1 Accounts (👤)
+
+- [ ] **Cloudflare:** a free account, with the email verified.
+- [ ] **Supabase:** an account and an organization on the Free plan.
+- [ ] **GitHub:** admin rights on `minikowsky/fin-assist`. You need these to install the Cloudflare GitHub App in Phase 6.
+- [ ] **Password manager:** add entries for the Supabase DB password, the admin user and the smoke user. None of these values go into the repo or into chat.
+
+### 0.2 Node (👤 install, 🤖 verify)
+
+- [ ] **Install a version manager.** For example fnm (`curl -fsSL https://fnm.vercel.app/install | bash`, then restart the shell), then `fnm install && fnm use`. This makes local Node match `.nvmrc` and Workers Builds.
+- [ ] **Install dependencies.** Run `node -v` (expect `v22.14.0`), then `npm ci`.
+- **Edge case:** if you skip this, Node 24 still runs wrangler and Astro. Just remember that local Node differs from CI if a "works on my machine" bug shows up.
+
+### 0.3 wrangler CLI (👤 login, 🤖 checks)
+
+- [ ] 👤 **Log in.** Run `npx wrangler login`. It opens a browser for OAuth, and the token is stored in `~/.config/.wrangler/config/default.toml`, outside the repo.
+- [ ] 🤖 **Check the login.** `npx wrangler whoami` should show the account name and account ID. Note the account ID.
+- [ ] Optional: turn off usage telemetry with `npx wrangler telemetry disable`.
+
+**Edge cases**
+- **The browser callback fails** (SSH, WSL, or a remote shell). The OAuth callback goes to `localhost:8976` on the machine running wrangler, so open the URL on that same machine. Otherwise use an API token:
+  1. In the dashboard, go to My Profile → API Tokens → Create Token → template **"Edit Cloudflare Workers"**.
+  2. Restrict it to this account only, with no zones.
+  3. `export CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=…` in `~/.bashrc` or a gitignored file. Never put it in the repo; it's public.
+- **More than one account** shows in `whoami`. Export `CLOUDFLARE_ACCOUNT_ID` so a deploy can't land in the wrong account.
+- **A token-auth login is expired or revoked.** `npx wrangler logout`, then log in again.
+
+### 0.4 Supabase CLI (👤 login, 🤖 checks)
+
+- [ ] 👤 **Log in.** Run `npx supabase login`. It opens a browser, and the token goes to the OS keyring.
+  - Headless fallback: create a personal access token at supabase.com/dashboard/account/tokens and `export SUPABASE_ACCESS_TOKEN=…` (not in the repo).
+- [ ] 🤖 **Check the login.** `npx supabase orgs list` should list your organization. Note the org ID.
+- [ ] **Create the production project.** This replaces the first step of Phase 2. Use either:
+  - **Dashboard:** project `fin-assist`, region **Central EU (Frankfurt) / eu-central-1**, a generated DB password saved to the password manager.
+  - **CLI** (👤, because it creates a billable resource): `npx supabase projects create fin-assist --org-id <org-id> --region eu-central-1 --db-password <pw>`.
+- [ ] 👤 **Link the repo to the project.** Run `npx supabase link --project-ref <ref>` and enter the DB password. This writes only to the gitignored `supabase/.temp/`. It's needed later for `supabase db push` once migrations exist.
+- [ ] 🤖 **Check the link.** `npx supabase projects list` should mark `fin-assist` as linked and show region `eu-central-1`.
+
+**Edge cases**
+- **Never run `npx supabase config push` against production.** The local `supabase/config.toml` has `site_url = http://127.0.0.1:3000`, `enable_signup = true` and `enable_confirmations = false`. Pushing it would overwrite the production auth settings from Phase 2. Production auth is configured only in the dashboard.
+- **`supabase link` fails with a password or connection error.** Reset the DB password in Dashboard → Database → Settings, or retry with `--password`. On IPv4-only networks, the direct connection is IPv6, so the CLI needs to use the pooler (a recent CLI does this automatically).
+- **Supabase Free allows 2 active projects per organization.** If the limit is hit, pause or delete an unused project (👤, in the dashboard).
+
+### 0.5 Local Supabase for dev and smoke tests (👤 sudo, 🤖 the rest)
+
+- [ ] 👤 **Give your user Docker access.** Run `sudo usermod -aG docker $USER`, then log out and back in (or run `newgrp docker`). Membership of the `docker` group is equivalent to root; rootless Docker is the stricter alternative.
+- [ ] 👤 **Fix the root-owned folder.** `sudo chown -R $USER:$USER supabase/.temp`.
+- [ ] 🤖 **Check Docker.** `docker info` runs without `permission denied`.
+- [ ] 🤖 **Start local Supabase.** Run `npx supabase start`, then `npx supabase status -o env`. Copy `API_URL` → `SUPABASE_URL` and `ANON_KEY` → `SUPABASE_KEY` into both `.env` and `.dev.vars`. This feeds the Phase 1 env-name fix.
+- **Edge cases:**
+  - **Never run `supabase` with `sudo` again.** That's what created the root-owned `.temp`.
+  - **Ports 54321–54324 already in use:** `npx supabase stop --all`, then start again.
+  - **First start is slow:** it pulls about 2 GB of images. The CI job skips the unneeded services with `-x studio,imgproxy,…`, and you can do the same locally.
+
+---
+
+## Phase 1: Repo changes (🤖, local, reversible)
+
+- [ ] **Rename the Worker.** In `wrangler.jsonc`, change `"name"` from `"10x-astro-starter"` to `"fin-assist"`. Renaming after the first deploy would create a second Worker, so this must happen first.
+- [ ] **Turn off Astro sessions.** Add `session: false` to `astro.config.mjs`.
+  - The adapter (`node_modules/@astrojs/cloudflare/dist/index.js:107`) otherwise injects a `SESSION` KV binding that wrangler auto-provisions on deploy. That's an extra resource, and it breaks deploys made with scoped tokens that lack KV permission.
+  - Nothing uses `Astro.session`: auth runs on Supabase cookies in `src/lib/supabase.ts`. First confirm with `grep -r "session" src/`.
+- [ ] **Make the smoke test safe for production.** `scripts/smoke.mjs` always signs up a fresh `smoke-…@example.com` account. Against production that would:
+  - create junk users,
+  - fail once sign-up is disabled (the PRD says there's no sign-up flow and the admin creates accounts),
+  - send to an address Supabase's default mailer can't deliver to (it only delivers to team members).
+
+  Change: when `SMOKE_EMAIL` and `SMOKE_PASSWORD` are set, skip the `signup creates account` step and sign in with those credentials. Without them, the behaviour stays exactly as it is today, so the CI smoke job against local Supabase is unchanged.
+- [ ] **Fix stale guidance.**
+  - `context/foundation/tech-stack.md`: change `deployment_target: cloudflare-pages` to `cloudflare-workers`.
+  - CLAUDE.md "Environment → Deploy": add one line saying Workers only, never `wrangler pages deploy`; always run `npm run build` right before `npx wrangler deploy`, because wrangler deploys whatever is in `dist/` via the generated `.wrangler/deploy/config.json`.
+- [ ] **Fix the local env names.** In the gitignored `.env`, rename the keys to `SUPABASE_URL` / `SUPABASE_KEY`, and create `.dev.vars` with the same keys. Local dev should point at **local** Supabase (`npx supabase start`), never at production.
+- [ ] **Verify:**
+  - `npm run lint && npx astro check && npm run build` passes.
+  - `dist/server/wrangler.json` shows `name: fin-assist` and has **no** `kv_namespaces` and no `images` binding.
+  - `.wrangler/deploy/config.json` exists.
+  - The local smoke run (local Supabase + `npm run preview` + `npm run smoke`, the same as CI) passes.
+- [ ] 👤 **Commit and push to `master`.** The agent prepares the commit and you approve it. Workers Builds builds from GitHub, so the rename and `session: false` must be on `master` before Phase 6. The repo is public, so check `git status` first and make sure no `.env` or `.dev.vars` file is staged.
+
+**Edge cases**
+- If the build still reports "Enabling sessions with Cloudflare KV", `session: false` isn't being applied. Check where it sits in the config: top level of `defineConfig`, not inside `adapter`.
+- `.nvmrc` pins 22.14, and the local Node is v24. wrangler 4.x runs on both. Run `nvm use` if anything behaves differently from CI.
+
+## Phase 2: Configure production Supabase auth (👤, dashboard)
+
+The project was created and linked in Phase 0.4.
+
+- [ ] **Turn off sign-up.** Authentication → Sign In / Providers → turn **off** "Allow new users to sign up". This enforces the PRD's admin-only account creation even though `/auth/signup` still exists in the app.
+- [ ] **Create the users.** Authentication → Users → Add user, with **Auto Confirm User** ticked:
+  - the admin account,
+  - a dedicated smoke account, for example `smoke@<your-domain>`. RLS keeps its data isolated.
+- [ ] **Copy the credentials.** From Project Settings → API, copy the **Project URL** and the **anon / publishable** key.
+
+**Edge cases**
+- **Never use the `service_role` / secret key as `SUPABASE_KEY`.** It bypasses RLS, which would break the PRD rule that no user's data is visible to anyone else.
+- Free Supabase projects **pause after about 7 days without activity**. Sign-in then fails with network or 5xx errors. Fix it with Dashboard → Restore project. Note it in the risk register; later, consider a keep-alive or the Pro plan.
+- The default mailer is capped at about 2 emails per hour and only delivers to team members. That's fine because confirmation emails aren't needed. Set up custom SMTP only if password reset (FR-015) is ever done by email.
+
+## Phase 3: Cloudflare account readiness (👤 dashboard, 🤖 checks)
+
+wrangler is configured in Phase 0.3.
+
+- [ ] 🤖 **Recheck the login.** `npx wrangler whoami` should still show the expected account.
+- [ ] 👤 **Check the workers.dev subdomain.** In the dashboard, go to Workers & Pages and confirm a `*.workers.dev` subdomain is registered. If none is, register it there. Otherwise the first `wrangler deploy` stops on an interactive prompt.
+
+## Phase 4: First deploy and secrets (👤 approves each production mutation)
+
+- [ ] 👤 **Deploy:** `npm run build && npx wrangler deploy`. Write down the URL and the version ID.
+- [ ] 🤖 **Check the deploy without secrets.** `curl -s https://fin-assist.<sub>.workers.dev/` should return 200 and contain the "Supabase nie jest skonfigurowany" banner. That's expected: the secrets are `optional: true` in `astro.config.mjs`.
+- [ ] 👤 **Set the secrets.** Run `npx wrangler secret put SUPABASE_URL`, then `npx wrangler secret put SUPABASE_KEY`, pasting the values at the prompt. Each command creates a new version immediately.
+- [ ] 🤖 **List the secrets.** `npx wrangler secret list` should show both names.
+- [ ] 👤 **Set Supabase URLs.** In Supabase → Authentication → URL Configuration, set the Site URL and Redirect URLs to `https://fin-assist.<sub>.workers.dev`.
+
+**Edge cases**
+- **Deploy before setting secrets.** Running `secret put` on a Worker that doesn't exist yet creates it out of band.
+- **Rollback trap.** Version 1 has no secrets, and a rollback doesn't change connected resources. **Never roll back to the version from before the secrets were set.** The first valid rollback target is the version created by the `SUPABASE_KEY` put.
+- **Error 1102 / "exceeded resource limits"** means the Free plan's 10 ms CPU limit was hit. Check the CPU time in Workers Logs. If auth pages alone go over it, upgrade to Paid now instead of in Phase 6.
+- **`[unenv] … not implemented` in the logs** means a dependency uses a Node API that workerd doesn't polyfill. It happens only in the Worker, so reproduce it with `npm run preview` locally.
+
+## Phase 5: Verification (🤖)
+
+- [ ] **Banner gone.** `curl` on the home page returns 200 **without** the not-configured banner.
+- [ ] **Production smoke test.** Run `BASE_URL=https://fin-assist.<sub>.workers.dev SMOKE_EMAIL=… SMOKE_PASSWORD=… npm run smoke`. All steps should pass, with signup skipped.
+- [ ] **Live logs.** Run `npx wrangler tail fin-assist --format json` while 👤 signs in through the browser. There should be no exceptions, and the CPU time should be well under 10 ms.
+- [ ] **Rollback target.** Run `npx wrangler deployments list` and record the current version ID as the known-good rollback target.
+- [ ] **Cookies.** In the browser, check that the `sb-*` auth cookies are `Secure` and `HttpOnly`/`SameSite` as set by `@supabase/ssr`, that `/dashboard` redirects after sign-out, and that a hard refresh keeps the session.
+
+**If verification fails:** use `npx wrangler rollback <known-good-id> --message "reason"` (👤), or fix forward. There are no DB migrations yet, so nothing on the Supabase side needs undoing.
+
+## Phase 6: Auto-deploy on push to `master` with Workers Builds (👤 dashboard, 🤖 checks)
+
+Only connect Builds after Phase 5 passes, so the first auto-deploy lands on a Worker that's already known to be good.
+
+- [ ] 👤 **Connect the repo.** In the dashboard: Workers & Pages → `fin-assist` → Settings → Builds → **Connect**. Install or authorize the **Cloudflare Workers & Pages GitHub App**, limited to the `minikowsky/fin-assist` repo only (not all repos), and select the repo.
+- [ ] 👤 **Build configuration:**
+  - **Root directory:** `/`
+  - **Build command:** `npm run lint && npx astro check && npm run build`. This puts the quality gate on Cloudflare's side. Builds runs independently of GitHub Actions CI, and `master` isn't protected, so without the gate a commit that fails lint or the type check would still deploy.
+  - **Deploy command:** `npx wrangler deploy` (the default). It uses the repo's pinned wrangler 4.131.1 and the generated `.wrangler/deploy/config.json`.
+  - **Build variables:** none. The Supabase values are runtime secrets that already live on the Worker (Phase 4), and `env.schema` marks them optional, so the build doesn't need them. Never put them in build variables.
+  - **API token:** the auto-generated one, which covers Workers scripts and KV.
+- [ ] 👤 **Branch control:**
+  - **Production branch:** `master`.
+  - **Enable Preview Builds:** **off**. Previews share production secrets, so they would talk to production Supabase, and the default `npx wrangler preview` command is beta.
+- [ ] 🤖 **Trigger the first auto-deploy.** Push a trivial commit, for example the updated tracker file. Then check:
+  - Build History shows success.
+  - `npx wrangler deployments list` shows a new version whose source is Builds.
+  - `npx wrangler secret list` still shows both secrets, because deploys keep existing secrets.
+  - The production smoke test (Phase 5 command) passes again.
+- [ ] **Manual deploy, the escape hatch** (👤). Use one of these two:
+  - **Dashboard:** Build History → **Retry build** on a `master` build. Preferred, because it builds from Git.
+  - **CLI:** `npm run build && npx wrangler deploy`. Only from a **clean, up-to-date `master`** (`git status` clean, `git pull` done). Otherwise the next push overwrites it, and production would briefly run code that isn't on `master`.
+
+**Edge cases**
+- **"Worker name must match"** build error. `wrangler.jsonc` `name` must be `fin-assist`. That's the reason Phase 1 was pushed before connecting.
+- **Node version.** Builds reads `.nvmrc` (`22.14.0`). The build image preinstalls 22.23.2 and 24.18.0. If installing 22.14.0 slows or breaks the build, set the build variable `NODE_VERSION=22`, or change `.nvmrc` to `22` (CI already uses `22`).
+- **Build passes but the site returns 404 or a blank page.** The build command must run `astro build`. `assets.directory` is `./dist`, which is correct.
+- **Two deploys in a row.** Builds on Free allows 1 concurrent build, 20 min timeout, and 3,000 build minutes a month. Back-to-back pushes queue up, and the last one wins.
+- **GitHub App errors after renaming or moving the repo.** Disconnect in Settings → Builds, then reconnect. Removing and reinstalling the GitHub App fixes permission errors.
+- **Rollback with auto-deploy on.** `wrangler rollback` fixes production immediately, but the **next push to `master` deploys again**. So revert or fix the bad commit on `master` too, otherwise the problem comes back.
+- **Stale or deleted build token.** The build fails on auth. Create a new token and select it in the Builds settings.
+
+## Phase 7: Record and hand off (🤖)
+
+- [ ] **Finalize the tracker.** In `context/changes/deployment/deployment-plan.md`, tick every checkbox and fill in the outcomes:
+  - the URL,
+  - the version IDs and the rollback target,
+  - the names of the secrets that are set,
+  - the Supabase region and the Cloudflare plan,
+  - the Builds settings: build command, production branch, preview builds off.
+- [ ] **Update CLAUDE.md "CI".** Say that GitHub Actions only lints, builds and runs the smoke test, and that production deploys come from Cloudflare Workers Builds on push to `master`.
+- [ ] **Add follow-up gates** to `deployment-plan.md`. None of them run now:
+  - **Upgrade to Workers Paid ($5/month) before CSV import ships.** Required because of the CPU cliff and the 50-subrequest cap. Import code must batch LLM calls and do bulk inserts.
+  - Consider branch protection on `master`: require GitHub Actions CI to pass and work through PRs.
+  - Before turning on preview builds, set up a separate `fin-assist-preview` Worker plus its own Supabase project, because previews share production secrets.
+  - `OPENROUTER_API_KEY`: add it to `env.schema` and `wrangler secret put` it when prediction lands.
+  - When the first table lands, run `supabase link` + `supabase db push` for migrations, with RLS enabled.
+  - Remove the `/auth/signup` page and endpoint (the PRD has no sign-up flow).
+  - Re-check Workers Logs pricing after 2026-12-01.
+
+## Critical files
+
+- `wrangler.jsonc`: the name
+- `astro.config.mjs`: `session: false`
+- `scripts/smoke.mjs`: production-safe credential mode
+- `context/foundation/tech-stack.md`: `deployment_target`
+- `CLAUDE.md`: the deploy line
+- `.env` / `.dev.vars`: local only, gitignored
+- `context/changes/deployment/deployment-plan.md`: new, the live tracker for this plan
