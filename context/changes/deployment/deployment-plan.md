@@ -11,7 +11,7 @@
 The goal is a working production URL at `https://fin-assist.<subdomain>.workers.dev` with Supabase auth working end to end, a known rollback target, and every edge case found during research handled up front.
 
 Decisions made:
-- Create a **new Supabase project in eu-central-1**.
+- Create a **new Supabase project in eu-central-1**. *(Actual, 2026-10-24: the project was created in **eu-north-1 / Stockholm**, still in the EU.)*
 - Start on the **Workers Free plan**, with a hard gate to move to Paid before CSV import ships.
 - **Deploy model:** the first production deploy is **manual** (`wrangler deploy` from the CLI). After that, **auto-deploy on push to `master` is handled by Cloudflare Workers Builds** (Git integration). There's **no GitHub Actions deploy**: the existing `.github/workflows/ci.yml` stays as is (lint, build, local smoke test) and never deploys. A manual deploy stays available as an escape hatch (see Phase 6).
 
@@ -29,31 +29,31 @@ Machine state checked on 2026-10-23:
 
 | Tool | State | Action |
 |---|---|---|
-| Node | v24.22.0 installed, but `.nvmrc` pins 22.14.0; no version manager | 0.2 |
-| wrangler | 4.131.1, run through `npx`; **not logged in** | 0.3 |
-| Supabase CLI | 2.117.0, run through `npx`; **not logged in** | 0.4 |
-| Docker | 29.1.3 installed; **your user can't reach the daemon** (not in the `docker` group) | 0.5 |
-| `supabase/.temp` | **owned by root** (an earlier `sudo` run), so the CLI can't write to it | 0.5 |
-| gh | logged in as `minikowsky`, scopes `repo` and `workflow` | none |
+| Node | v22.14.0 via fnm, matching `.nvmrc`; system Node v24.22.0 is still there (checked 2026-10-24) | done |
+| wrangler | 4.131.1, run through `npx`; logged in via OAuth (checked 2026-10-24) | done |
+| Supabase CLI | 2.117.0, run through `npx`; logged in, project created and linked (checked 2026-10-24) | done |
+| Docker | 29.1.3 installed; user added to `docker` group, local Supabase running (checked 2026-10-24) | done |
+| `supabase/.temp` | ownership fixed (`chown` on all of `supabase/`, 2026-10-24) | done |
+| gh | logged in as `minikowsky`, scopes `repo` and `workflow`; `ADMIN` on the repo (checked 2026-10-24) | done |
 
 ### 0.1 Accounts (👤)
 
-- [ ] **Cloudflare:** a free account, with the email verified.
-- [ ] **Supabase:** an account and an organization on the Free plan.
-- [ ] **GitHub:** admin rights on `minikowsky/fin-assist`. You need these to install the Cloudflare GitHub App in Phase 6.
-- [ ] **Password manager:** add entries for the Supabase DB password, the admin user and the smoke user. None of these values go into the repo or into chat.
+- [x] **Cloudflare:** a free account, with the email verified. *(Account "Minik", ID `8fbf703f2edc4d1a78b14caabc96bb67`.)*
+- [x] **Supabase:** an account and an organization on the Free plan. *(Org ID `dtglhywyyftdeqtunjmd`.)*
+- [x] **GitHub:** admin rights on `minikowsky/fin-assist`. You need these to install the Cloudflare GitHub App in Phase 6. *(`viewerPermission: ADMIN`.)*
+- [x] **Password manager:** add entries for the Supabase DB password, the admin user and the smoke user. None of these values go into the repo or into chat. *(2026-10-24: DB password saved. Add the admin and smoke user entries when they're created in Phase 2.)*
 
 ### 0.2 Node (👤 install, 🤖 verify)
 
-- [ ] **Install a version manager.** For example fnm (`curl -fsSL https://fnm.vercel.app/install | bash`, then restart the shell), then `fnm install && fnm use`. This makes local Node match `.nvmrc` and Workers Builds.
-- [ ] **Install dependencies.** Run `node -v` (expect `v22.14.0`), then `npm ci`.
+- [x] **Install a version manager.** For example fnm (`curl -fsSL https://fnm.vercel.app/install | bash`, then restart the shell), then `fnm install && fnm use`. This makes local Node match `.nvmrc` and Workers Builds. *(2026-10-24: fnm in `~/.local/share/fnm`, Node v22.14.0 installed. Non-interactive shells, such as the agent's, don't load fnm from `.bashrc` and fall back to the system Node v24.22.0.)*
+- [x] **Install dependencies.** Run `node -v` (expect `v22.14.0`), then `npm ci`. *(`node -v` → v22.14.0, npm 10.9.2; `node_modules` present.)*
 - **Edge case:** if you skip this, Node 24 still runs wrangler and Astro. Just remember that local Node differs from CI if a "works on my machine" bug shows up.
 
 ### 0.3 wrangler CLI (👤 login, 🤖 checks)
 
-- [ ] 👤 **Log in.** Run `npx wrangler login`. It opens a browser for OAuth, and the token is stored in `~/.config/.wrangler/config/default.toml`, outside the repo.
-- [ ] 🤖 **Check the login.** `npx wrangler whoami` should show the account name and account ID. Note the account ID.
-- [ ] Optional: turn off usage telemetry with `npx wrangler telemetry disable`.
+- [x] 👤 **Log in.** Run `npx wrangler login`. It opens a browser for OAuth, and the token is stored in `~/.config/.wrangler/config/default.toml`, outside the repo.
+- [x] 🤖 **Check the login.** `npx wrangler whoami` should show the account name and account ID. Note the account ID. *(2026-10-24: one account, "Minik", `8fbf703f2edc4d1a78b14caabc96bb67`. The OAuth token has broad default scopes, so use a scoped token for anything unattended.)*
+- [x] Optional: turn off usage telemetry with `npx wrangler telemetry disable`. *(2026-10-24: `wrangler telemetry status` shows Disabled.)*
 
 **Edge cases**
 - **The browser callback fails** (SSH, WSL, or a remote shell). The OAuth callback goes to `localhost:8976` on the machine running wrangler, so open the URL on that same machine. Otherwise use an API token:
@@ -65,14 +65,14 @@ Machine state checked on 2026-10-23:
 
 ### 0.4 Supabase CLI (👤 login, 🤖 checks)
 
-- [ ] 👤 **Log in.** Run `npx supabase login`. It opens a browser, and the token goes to the OS keyring.
+- [x] 👤 **Log in.** Run `npx supabase login`. It opens a browser, and the token goes to the OS keyring.
   - Headless fallback: create a personal access token at supabase.com/dashboard/account/tokens and `export SUPABASE_ACCESS_TOKEN=…` (not in the repo).
-- [ ] 🤖 **Check the login.** `npx supabase orgs list` should list your organization. Note the org ID.
-- [ ] **Create the production project.** This replaces the first step of Phase 2. Use either:
+- [x] 🤖 **Check the login.** `npx supabase orgs list` should list your organization. Note the org ID. *(Checked with `projects list`: org `dtglhywyyftdeqtunjmd`.)*
+- [x] **Create the production project.** This replaces the first step of Phase 2. *(2026-10-24: `fin-assist`, ref `ckvcyftxbatipvjhrome`, region **eu-north-1** (not eu-central-1 as planned), Postgres 17, status `ACTIVE_HEALTHY`.)* Use either:
   - **Dashboard:** project `fin-assist`, region **Central EU (Frankfurt) / eu-central-1**, a generated DB password saved to the password manager.
   - **CLI** (👤, because it creates a billable resource): `npx supabase projects create fin-assist --org-id <org-id> --region eu-central-1 --db-password <pw>`.
-- [ ] 👤 **Link the repo to the project.** Run `npx supabase link --project-ref <ref>` and enter the DB password. This writes only to the gitignored `supabase/.temp/`. It's needed later for `supabase db push` once migrations exist.
-- [ ] 🤖 **Check the link.** `npx supabase projects list` should mark `fin-assist` as linked and show region `eu-central-1`.
+- [x] 👤 **Link the repo to the project.** Run `npx supabase link --project-ref ckvcyftxbatipvjhrome` and enter the DB password. *(2026-10-24: linked with no password given. `supabase db push` will ask for the DB password later.)* This writes only to the gitignored `supabase/.temp/`. It's needed later for `supabase db push` once migrations exist.
+- [x] 🤖 **Check the link.** `npx supabase projects list` should mark `fin-assist` as linked and show region `eu-central-1`. *(`linked: true`, region `eu-north-1`.)*
 
 **Edge cases**
 - **Never run `npx supabase config push` against production.** The local `supabase/config.toml` has `site_url = http://127.0.0.1:3000`, `enable_signup = true` and `enable_confirmations = false`. Pushing it would overwrite the production auth settings from Phase 2. Production auth is configured only in the dashboard.
@@ -81,10 +81,11 @@ Machine state checked on 2026-10-23:
 
 ### 0.5 Local Supabase for dev and smoke tests (👤 sudo, 🤖 the rest)
 
-- [ ] 👤 **Give your user Docker access.** Run `sudo usermod -aG docker $USER`, then log out and back in (or run `newgrp docker`). Membership of the `docker` group is equivalent to root; rootless Docker is the stricter alternative.
-- [ ] 👤 **Fix the root-owned folder.** `sudo chown -R $USER:$USER supabase/.temp`.
-- [ ] 🤖 **Check Docker.** `docker info` runs without `permission denied`.
-- [ ] 🤖 **Start local Supabase.** Run `npx supabase start`, then `npx supabase status -o env`. Copy `API_URL` → `SUPABASE_URL` and `ANON_KEY` → `SUPABASE_KEY` into both `.env` and `.dev.vars`. This feeds the Phase 1 env-name fix.
+- [x] 👤 **Give your user Docker access.** Run `sudo usermod -aG docker $USER`, then log out and back in (or run `newgrp docker`). Membership of the `docker` group is equivalent to root; rootless Docker is the stricter alternative.
+- [x] 👤 **Fix the root-owned folder.** `sudo chown -R $USER:$USER supabase/.temp`. *(Done 2026-10-24 for all of `supabase/`.)*
+- [x] 🤖 **Check Docker.** `docker info` runs without `permission denied`. *(2026-10-24: confirmed by the user; the agent's shell predates the group change and still gets `permission denied`.)*
+- [x] 🤖 **Start local Supabase.** Run `npx supabase start`. *(2026-10-24: running; `http://127.0.0.1:54321/auth/v1/health` → 200.)*
+- [x] 🤖 **Point local env at local Supabase.** Run `npx supabase status -o env`. Copy `API_URL` → `SUPABASE_URL` and `ANON_KEY` → `SUPABASE_KEY` into both `.env` and `.dev.vars`. This feeds the Phase 1 env-name fix. *(2026-10-24 16:00: `.env` done: `http://127.0.0.1:54321` with the local `anon` key, which local Supabase accepts. `.dev.vars` created with the same two keys.)*
 - **Edge cases:**
   - **Never run `supabase` with `sudo` again.** That's what created the root-owned `.temp`.
   - **Ports 54321–54324 already in use:** `npx supabase stop --all`, then start again.
@@ -94,7 +95,7 @@ Machine state checked on 2026-10-23:
 
 ## Phase 1: Repo changes (🤖, local, reversible)
 
-- [ ] **Rename the Worker.** In `wrangler.jsonc`, change `"name"` from `"10x-astro-starter"` to `"fin-assist"`. Renaming after the first deploy would create a second Worker, so this must happen first.
+- [x] **Rename the Worker.** In `wrangler.jsonc`, change `"name"` from `"10x-astro-starter"` to `"fin-assist"`. Renaming after the first deploy would create a second Worker, so this must happen first. *(Done 2026-10-24, not committed yet.)*
 - [ ] **Turn off Astro sessions.** Add `session: false` to `astro.config.mjs`.
   - The adapter (`node_modules/@astrojs/cloudflare/dist/index.js:107`) otherwise injects a `SESSION` KV binding that wrangler auto-provisions on deploy. That's an extra resource, and it breaks deploys made with scoped tokens that lack KV permission.
   - Nothing uses `Astro.session`: auth runs on Supabase cookies in `src/lib/supabase.ts`. First confirm with `grep -r "session" src/`.
@@ -107,7 +108,7 @@ Machine state checked on 2026-10-23:
 - [ ] **Fix stale guidance.**
   - `context/foundation/tech-stack.md`: change `deployment_target: cloudflare-pages` to `cloudflare-workers`.
   - CLAUDE.md "Environment → Deploy": add one line saying Workers only, never `wrangler pages deploy`; always run `npm run build` right before `npx wrangler deploy`, because wrangler deploys whatever is in `dist/` via the generated `.wrangler/deploy/config.json`.
-- [ ] **Fix the local env names.** In the gitignored `.env`, rename the keys to `SUPABASE_URL` / `SUPABASE_KEY`, and create `.dev.vars` with the same keys. Local dev should point at **local** Supabase (`npx supabase start`), never at production.
+- [x] **Fix the local env names.** In the gitignored `.env`, rename the keys to `SUPABASE_URL` / `SUPABASE_KEY`, and create `.dev.vars` with the same keys. Local dev should point at **local** Supabase (`npx supabase start`), never at production. *(Done 2026-10-24 as part of Phase 0.5.)*
 - [ ] **Verify:**
   - `npm run lint && npx astro check && npm run build` passes.
   - `dist/server/wrangler.json` shows `name: fin-assist` and has **no** `kv_namespaces` and no `images` binding.
@@ -127,6 +128,7 @@ The project was created and linked in Phase 0.4.
 - [ ] **Create the users.** Authentication → Users → Add user, with **Auto Confirm User** ticked:
   - the admin account,
   - a dedicated smoke account, for example `smoke@<your-domain>`. RLS keeps its data isolated.
+  - Save both sets of credentials in the password manager (finishes step 0.1).
 - [ ] **Copy the credentials.** From Project Settings → API, copy the **Project URL** and the **anon / publishable** key.
 
 **Edge cases**
