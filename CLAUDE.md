@@ -49,6 +49,7 @@ Full server-side rendering (`output: "server"` in astro.config.mjs). All pages a
 - Local Supabase: `npx supabase start` (requires Docker)
 - Cloudflare local dev: secrets go in `.dev.vars` (gitignored)
 - Deploy: `npx wrangler deploy` (requires Cloudflare account + `wrangler` auth)
+- Workers only — never `wrangler pages deploy`. Always run `npm run build` right before `npx wrangler deploy`: wrangler deploys whatever is in `dist/` via the generated `.wrangler/deploy/config.json`.
 
 ## CI
 

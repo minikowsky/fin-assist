@@ -1,9 +1,11 @@
 // Smoke test: proves the built app, the Cloudflare adapter and the Supabase auth flow still work together.
 // Zero dependencies on purpose. Run against a live server: BASE_URL=http://localhost:4321 node scripts/smoke.mjs
+// Set SMOKE_EMAIL and SMOKE_PASSWORD to sign in with an existing account instead of signing up (production-safe).
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:4321";
-const email = `smoke-${Date.now()}@example.com`;
-const password = "Smoke-Test-Passw0rd!";
+const existingAccount = Boolean(process.env.SMOKE_EMAIL && process.env.SMOKE_PASSWORD);
+const email = existingAccount ? process.env.SMOKE_EMAIL : `smoke-${Date.now()}@example.com`;
+const password = existingAccount ? process.env.SMOKE_PASSWORD : "Smoke-Test-Passw0rd!";
 const jar = new Map();
 
 function cookieHeader() {
@@ -38,11 +40,15 @@ async function request(path, { method = "GET", form } = {}) {
 const steps = [
   ["home renders", () => request("/"), { status: 200 }],
   ["dashboard redirects anonymous user", () => request("/dashboard"), { status: 302, location: "/auth/signin" }],
-  [
-    "signup creates account",
-    () => request("/api/auth/signup", { method: "POST", form: { email, password } }),
-    { status: 302, location: "/auth/confirm-email" },
-  ],
+  ...(existingAccount
+    ? []
+    : [
+        [
+          "signup creates account",
+          () => request("/api/auth/signup", { method: "POST", form: { email, password } }),
+          { status: 302, location: "/auth/confirm-email" },
+        ],
+      ]),
   [
     "signin rejects wrong password",
     () => request("/api/auth/signin", { method: "POST", form: { email, password: "wrong" } }),

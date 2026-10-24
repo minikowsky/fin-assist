@@ -96,20 +96,20 @@ Machine state checked on 2026-10-23:
 ## Phase 1: Repo changes (🤖, local, reversible)
 
 - [x] **Rename the Worker.** In `wrangler.jsonc`, change `"name"` from `"10x-astro-starter"` to `"fin-assist"`. Renaming after the first deploy would create a second Worker, so this must happen first. *(Done 2026-10-24, not committed yet.)*
-- [ ] **Turn off Astro sessions.** Add `session: false` to `astro.config.mjs`.
+- [x] **Turn off Astro sessions.** Add `session: false` to `astro.config.mjs`. *(Done 2026-10-24; `grep session src/` found nothing. Verification also turned up an `IMAGES` binding from the adapter's default `imageService: "cloudflare-binding"`, so the adapter is now `cloudflare({ imageService: "passthrough" })`. Nothing in `src/` uses `astro:assets`.)*
   - The adapter (`node_modules/@astrojs/cloudflare/dist/index.js:107`) otherwise injects a `SESSION` KV binding that wrangler auto-provisions on deploy. That's an extra resource, and it breaks deploys made with scoped tokens that lack KV permission.
   - Nothing uses `Astro.session`: auth runs on Supabase cookies in `src/lib/supabase.ts`. First confirm with `grep -r "session" src/`.
-- [ ] **Make the smoke test safe for production.** `scripts/smoke.mjs` always signs up a fresh `smoke-…@example.com` account. Against production that would:
+- [x] **Make the smoke test safe for production.** `scripts/smoke.mjs` always signs up a fresh `smoke-…@example.com` account. Against production that would:
   - create junk users,
   - fail once sign-up is disabled (the PRD says there's no sign-up flow and the admin creates accounts),
   - send to an address Supabase's default mailer can't deliver to (it only delivers to team members).
 
-  Change: when `SMOKE_EMAIL` and `SMOKE_PASSWORD` are set, skip the `signup creates account` step and sign in with those credentials. Without them, the behaviour stays exactly as it is today, so the CI smoke job against local Supabase is unchanged.
-- [ ] **Fix stale guidance.**
+  Change: when `SMOKE_EMAIL` and `SMOKE_PASSWORD` are set, skip the `signup creates account` step and sign in with those credentials. Without them, the behaviour stays exactly as it is today, so the CI smoke job against local Supabase is unchanged. *(Done 2026-10-24.)*
+- [x] **Fix stale guidance.** *(Done 2026-10-24.)*
   - `context/foundation/tech-stack.md`: change `deployment_target: cloudflare-pages` to `cloudflare-workers`.
   - CLAUDE.md "Environment → Deploy": add one line saying Workers only, never `wrangler pages deploy`; always run `npm run build` right before `npx wrangler deploy`, because wrangler deploys whatever is in `dist/` via the generated `.wrangler/deploy/config.json`.
 - [x] **Fix the local env names.** In the gitignored `.env`, rename the keys to `SUPABASE_URL` / `SUPABASE_KEY`, and create `.dev.vars` with the same keys. Local dev should point at **local** Supabase (`npx supabase start`), never at production. *(Done 2026-10-24 as part of Phase 0.5.)*
-- [ ] **Verify:**
+- [x] **Verify:** *(2026-10-24 on Node v22.14.0: lint clean; `astro check` 0 errors/warnings; build OK with no sessions/KV/Images messages; `dist/server/wrangler.json` → `name: fin-assist`, `kv_namespaces: []`, no `images`; `.wrangler/deploy/config.json` present; smoke against local Supabase passes 8/8 in signup mode and 7/7 in `SMOKE_EMAIL`/`SMOKE_PASSWORD` mode.)*
   - `npm run lint && npx astro check && npm run build` passes.
   - `dist/server/wrangler.json` shows `name: fin-assist` and has **no** `kv_namespaces` and no `images` binding.
   - `.wrangler/deploy/config.json` exists.
@@ -220,7 +220,7 @@ Only connect Builds after Phase 5 passes, so the first auto-deploy lands on a Wo
 ## Critical files
 
 - `wrangler.jsonc`: the name
-- `astro.config.mjs`: `session: false`
+- `astro.config.mjs`: `session: false`, `imageService: "passthrough"`
 - `scripts/smoke.mjs`: production-safe credential mode
 - `context/foundation/tech-stack.md`: `deployment_target`
 - `CLAUDE.md`: the deploy line

@@ -13,7 +13,10 @@ export default defineConfig({
   vite: {
     plugins: [tailwindcss()],
   },
-  adapter: cloudflare(),
+  // Passthrough avoids an IMAGES (Cloudflare Images) binding; no astro:assets transforms are used.
+  adapter: cloudflare({ imageService: "passthrough" }),
+  // Auth uses Supabase cookies; disabling sessions stops the adapter from provisioning a SESSION KV binding.
+  session: false,
   env: {
     schema: {
       SUPABASE_URL: envField.string({ context: "server", access: "secret", optional: true }),
