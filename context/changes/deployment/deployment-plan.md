@@ -41,7 +41,7 @@ Machine state checked on 2026-10-23:
 - [x] **Cloudflare:** a free account, with the email verified. *(Account "Minik", ID `8fbf703f2edc4d1a78b14caabc96bb67`.)*
 - [x] **Supabase:** an account and an organization on the Free plan. *(Org ID `dtglhywyyftdeqtunjmd`.)*
 - [x] **GitHub:** admin rights on `minikowsky/fin-assist`. You need these to install the Cloudflare GitHub App in Phase 6. *(`viewerPermission: ADMIN`.)*
-- [x] **Password manager:** add entries for the Supabase DB password, the admin user and the smoke user. None of these values go into the repo or into chat. *(2026-10-24: DB password saved. Add the admin and smoke user entries when they're created in Phase 2.)*
+- [x] **Password manager:** add entries for the Supabase DB password, the admin user and the smoke user. None of these values go into the repo or into chat. *(2026-10-24: DB password saved. Admin and smoke user entries added in Phase 2.)*
 
 ### 0.2 Node (👤 install, 🤖 verify)
 
@@ -114,7 +114,7 @@ Machine state checked on 2026-10-23:
   - `dist/server/wrangler.json` shows `name: fin-assist` and has **no** `kv_namespaces` and no `images` binding.
   - `.wrangler/deploy/config.json` exists.
   - The local smoke run (local Supabase + `npm run preview` + `npm run smoke`, the same as CI) passes.
-- [ ] 👤 **Commit and push to `master`.** The agent prepares the commit and you approve it. Workers Builds builds from GitHub, so the rename and `session: false` must be on `master` before Phase 6. The repo is public, so check `git status` first and make sure no `.env` or `.dev.vars` file is staged.
+- [x] 👤 **Commit and push to `master`.** *(2026-10-24: `98d834f`.)* The agent prepares the commit and you approve it. Workers Builds builds from GitHub, so the rename and `session: false` must be on `master` before Phase 6. The repo is public, so check `git status` first and make sure no `.env` or `.dev.vars` file is staged.
 
 **Edge cases**
 - If the build still reports "Enabling sessions with Cloudflare KV", `session: false` isn't being applied. Check where it sits in the config: top level of `defineConfig`, not inside `adapter`.
@@ -124,12 +124,12 @@ Machine state checked on 2026-10-23:
 
 The project was created and linked in Phase 0.4.
 
-- [ ] **Turn off sign-up.** Authentication → Sign In / Providers → turn **off** "Allow new users to sign up". This enforces the PRD's admin-only account creation even though `/auth/signup` still exists in the app.
-- [ ] **Create the users.** Authentication → Users → Add user, with **Auto Confirm User** ticked:
+- [x] **Turn off sign-up.** Authentication → Sign In / Providers → turn **off** "Allow new users to sign up". This enforces the PRD's admin-only account creation even though `/auth/signup` still exists in the app.
+- [x] **Create the users.** Authentication → Users → Add user, with **Auto Confirm User** ticked:
   - the admin account,
   - a dedicated smoke account, for example `smoke@<your-domain>`. RLS keeps its data isolated.
-  - Save both sets of credentials in the password manager (finishes step 0.1).
-- [ ] **Copy the credentials.** From Project Settings → API, copy the **Project URL** and the **anon / publishable** key.
+  - Save both sets of credentials in the password manager (finishes step 0.1). *(Done 2026-10-24, confirmed by the user.)*
+- [x] **Copy the credentials.** From Project Settings → API, copy the **Project URL** and the **anon / publishable** key.
 
 **Edge cases**
 - **Never use the `service_role` / secret key as `SUPABASE_KEY`.** It bypasses RLS, which would break the PRD rule that no user's data is visible to anyone else.
@@ -140,16 +140,16 @@ The project was created and linked in Phase 0.4.
 
 wrangler is configured in Phase 0.3.
 
-- [ ] 🤖 **Recheck the login.** `npx wrangler whoami` should still show the expected account.
-- [ ] 👤 **Check the workers.dev subdomain.** In the dashboard, go to Workers & Pages and confirm a `*.workers.dev` subdomain is registered. If none is, register it there. Otherwise the first `wrangler deploy` stops on an interactive prompt.
+- [x] 🤖 **Recheck the login.** `npx wrangler whoami` should still show the expected account. *(2026-10-25: OAuth, account "Minik" `8fbf703f2edc4d1a78b14caabc96bb67`.)*
+- [x] 👤 **Check the workers.dev subdomain.** In the dashboard, go to Workers & Pages and confirm a `*.workers.dev` subdomain is registered. If none is, register it there. Otherwise the first `wrangler deploy` stops on an interactive prompt. *(2026-10-25: checked via API `GET /accounts/…/workers/subdomain` → `minik`. Target URL: `https://fin-assist.minik.workers.dev`. `wrangler deployments list --name fin-assist` → "Worker does not exist" (code 10007), so this is a clean first deploy.)*
 
 ## Phase 4: First deploy and secrets (👤 approves each production mutation)
 
-- [ ] 👤 **Deploy:** `npm run build && npx wrangler deploy`. Write down the URL and the version ID.
-- [ ] 🤖 **Check the deploy without secrets.** `curl -s https://fin-assist.<sub>.workers.dev/` should return 200 and contain the "Supabase nie jest skonfigurowany" banner. That's expected: the secrets are `optional: true` in `astro.config.mjs`.
-- [ ] 👤 **Set the secrets.** Run `npx wrangler secret put SUPABASE_URL`, then `npx wrangler secret put SUPABASE_KEY`, pasting the values at the prompt. Each command creates a new version immediately.
-- [ ] 🤖 **List the secrets.** `npx wrangler secret list` should show both names.
-- [ ] 👤 **Set Supabase URLs.** In Supabase → Authentication → URL Configuration, set the Site URL and Redirect URLs to `https://fin-assist.<sub>.workers.dev`.
+- [x] 👤 **Deploy:** `npm run build && npx wrangler deploy`. Write down the URL and the version ID. *(2026-10-25, approved by the user, run on Node v22.14.0 from `98d834f`: `https://fin-assist.minik.workers.dev`, version `87a824c3-45a9-4d23-9045-5cd5d29e05b2` (no secrets, **not** a rollback target). Bindings: `ASSETS` only. Startup time 13 ms.)*
+- [x] 🤖 **Check the deploy without secrets.** `curl -s https://fin-assist.<sub>.workers.dev/` should return 200 and contain the "Supabase nie jest skonfigurowany" banner. That's expected: the secrets are `optional: true` in `astro.config.mjs`. *(2026-10-25: 200, banner present.)*
+- [x] 👤 **Set the secrets.** Run `npx wrangler secret put SUPABASE_URL`, then `npx wrangler secret put SUPABASE_KEY`, pasting the values at the prompt. Each command creates a new version immediately. *(2026-10-25, by the user: versions `06b8facc-758c-4b27-82d1-9eaffbe59475` (first put, one secret only) and `1499a110-54d9-4027-abe3-51a942bb46fe` (second put, both secrets). **First valid rollback target: `1499a110-…`.**)*
+- [x] 🤖 **List the secrets.** `npx wrangler secret list` should show both names. *(2026-10-25: `SUPABASE_KEY`, `SUPABASE_URL`, both `secret_text`.)*
+- [x] 👤 **Set Supabase URLs.** In Supabase → Authentication → URL Configuration, set the Site URL and Redirect URLs to `https://fin-assist.<sub>.workers.dev`. *(2026-10-25: both set to `https://fin-assist.minik.workers.dev`, by the user.)*
 
 **Edge cases**
 - **Deploy before setting secrets.** Running `secret put` on a Worker that doesn't exist yet creates it out of band.
@@ -159,11 +159,11 @@ wrangler is configured in Phase 0.3.
 
 ## Phase 5: Verification (🤖)
 
-- [ ] **Banner gone.** `curl` on the home page returns 200 **without** the not-configured banner.
-- [ ] **Production smoke test.** Run `BASE_URL=https://fin-assist.<sub>.workers.dev SMOKE_EMAIL=… SMOKE_PASSWORD=… npm run smoke`. All steps should pass, with signup skipped.
-- [ ] **Live logs.** Run `npx wrangler tail fin-assist --format json` while 👤 signs in through the browser. There should be no exceptions, and the CPU time should be well under 10 ms.
-- [ ] **Rollback target.** Run `npx wrangler deployments list` and record the current version ID as the known-good rollback target.
-- [ ] **Cookies.** In the browser, check that the `sb-*` auth cookies are `Secure` and `HttpOnly`/`SameSite` as set by `@supabase/ssr`, that `/dashboard` redirects after sign-out, and that a hard refresh keeps the session.
+- [x] **Banner gone.** `curl` on the home page returns 200 **without** the not-configured banner. *(2026-10-25: 200, banner absent.)*
+- [x] **Production smoke test.** Run `BASE_URL=https://fin-assist.<sub>.workers.dev SMOKE_EMAIL=… SMOKE_PASSWORD=… npm run smoke`. All steps should pass, with signup skipped. *(2026-10-25: run by the user against `https://fin-assist.minik.workers.dev`, all steps passed, signup skipped.)*
+- [x] **Live logs.** Run `npx wrangler tail fin-assist --format json` while 👤 signs in through the browser. There should be no exceptions, and the CPU time should be well under 10 ms. *(2026-10-25, tailed during the production smoke run plus 10 probe requests: 18 events, all `outcome: ok`, 0 exceptions, no error/warn logs. CPU **over 10 ms on a fresh isolate**: `/auth/signin` 20–31 ms, `/` 13–16 ms for the first 2–3 hits. Warm requests are 1–5 ms, and the API routes 2–11 ms. Nothing was killed (no 1102 error). Watch for 1102 in Workers Logs; it's another reason to keep the Paid upgrade gate.)*
+- [x] **Rollback target.** Run `npx wrangler deployments list` and record the current version ID as the known-good rollback target. *(2026-10-25: `1499a110-54d9-4027-abe3-51a942bb46fe`, 100% traffic.)*
+- [x] **Cookies.** In the browser, check that the `sb-*` auth cookies are `Secure` and `HttpOnly`/`SameSite` as set by `@supabase/ssr`, that `/dashboard` redirects after sign-out, and that a hard refresh keeps the session. *(2026-10-25: confirmed by the user.)*
 
 **If verification fails:** use `npx wrangler rollback <known-good-id> --message "reason"` (👤), or fix forward. There are no DB migrations yet, so nothing on the Supabase side needs undoing.
 
