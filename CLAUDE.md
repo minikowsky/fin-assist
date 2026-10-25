@@ -53,7 +53,9 @@ Full server-side rendering (`output: "server"` in astro.config.mjs). All pages a
 
 ## CI
 
-GitHub Actions workflow (`.github/workflows/ci.yml`) runs lint + build on every push and PR to master. Requires `SUPABASE_URL` and `SUPABASE_KEY` repository secrets for the build step.
+GitHub Actions workflow (`.github/workflows/ci.yml`) runs `astro sync` + lint + `astro check` + build, plus a smoke job against a local Supabase, on every push and PR to master. It never deploys. Requires `SUPABASE_URL` and `SUPABASE_KEY` repository secrets for the build step.
+
+Production deploys come from **Cloudflare Workers Builds** on every push to `master` (build command `npx astro sync && npm run lint && npx astro check && npm run build`, deploy `npx wrangler deploy`, preview builds off). It runs independently of GitHub Actions, so a push to `master` ships even if CI fails. `npx astro sync` must run before lint on a clean checkout, because `.astro/` is gitignored. Production: `https://fin-assist.minik.workers.dev`; the rollback target is tracked in `context/changes/deployment/deployment-plan.md`.
 
 <!-- BEGIN @przeprogramowani/10x-cli -->
 

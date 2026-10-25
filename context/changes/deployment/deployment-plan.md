@@ -171,22 +171,22 @@ wrangler is configured in Phase 0.3.
 
 Only connect Builds after Phase 5 passes, so the first auto-deploy lands on a Worker that's already known to be good.
 
-- [ ] 👤 **Connect the repo.** In the dashboard: Workers & Pages → `fin-assist` → Settings → Builds → **Connect**. Install or authorize the **Cloudflare Workers & Pages GitHub App**, limited to the `minikowsky/fin-assist` repo only (not all repos), and select the repo.
-- [ ] 👤 **Build configuration:**
+- [x] 👤 **Connect the repo.** In the dashboard: Workers & Pages → `fin-assist` → Settings → Builds → **Connect**. Install or authorize the **Cloudflare Workers & Pages GitHub App**, limited to the `minikowsky/fin-assist` repo only (not all repos), and select the repo. *(2026-10-25: in this dashboard version, "Connect" is the **GitHub** button under "Git repository". The app had first been installed from the GitHub side, so the button only opened GitHub's installation settings and never showed the form. Fix: uninstall the app on GitHub, click the GitHub button in Cloudflare again, then **Install & Authorize** (only `fin-assist`). That redirects back to the build form.)*
+- [x] 👤 **Build configuration:** *(2026-10-25: set as below, with the corrected build command.)*
   - **Root directory:** `/`
-  - **Build command:** `npm run lint && npx astro check && npm run build`. This puts the quality gate on Cloudflare's side. Builds runs independently of GitHub Actions CI, and `master` isn't protected, so without the gate a commit that fails lint or the type check would still deploy.
+  - **Build command:** `npx astro sync && npm run lint && npx astro check && npm run build`. *(2026-10-25: the first Builds run failed with 20 `no-unsafe-*` lint errors because `astro sync` was missing. `.astro/` is gitignored, so on a clean checkout `astro:middleware`, `astro:env/server` and `import.meta.env` don't resolve until it runs. CI does the same at `ci.yml:19`.)* This puts the quality gate on Cloudflare's side. Builds runs independently of GitHub Actions CI, and `master` isn't protected, so without the gate a commit that fails lint or the type check would still deploy.
   - **Deploy command:** `npx wrangler deploy` (the default). It uses the repo's pinned wrangler 4.131.1 and the generated `.wrangler/deploy/config.json`.
   - **Build variables:** none. The Supabase values are runtime secrets that already live on the Worker (Phase 4), and `env.schema` marks them optional, so the build doesn't need them. Never put them in build variables.
   - **API token:** the auto-generated one, which covers Workers scripts and KV.
-- [ ] 👤 **Branch control:**
+- [x] 👤 **Branch control:** *(2026-10-25: production branch `master`, non-production builds off, confirmed by the user.)*
   - **Production branch:** `master`.
   - **Enable Preview Builds:** **off**. Previews share production secrets, so they would talk to production Supabase, and the default `npx wrangler preview` command is beta.
-- [ ] 🤖 **Trigger the first auto-deploy.** Push a trivial commit, for example the updated tracker file. Then check:
+- [x] 🤖 **Trigger the first auto-deploy.** Push a trivial commit, for example the updated tracker file. Then check: *(2026-10-25: connecting didn't start a build. The push of `fcdf8f9` triggered one, which failed lint because `astro sync` was missing (see Build configuration). The retry with the fixed command **succeeded**: version `0cd08f45-40d1-488d-89d3-fed0192917af`, 100% traffic. wrangler shows its source as "Unknown (deployment)", not "Builds", so Build History is where to confirm it. Both secrets carried over, `/` returns 200 with no banner, and the production smoke test passed (user).)*
   - Build History shows success.
   - `npx wrangler deployments list` shows a new version whose source is Builds.
   - `npx wrangler secret list` still shows both secrets, because deploys keep existing secrets.
   - The production smoke test (Phase 5 command) passes again.
-- [ ] **Manual deploy, the escape hatch** (👤). Use one of these two:
+- [x] **Manual deploy, the escape hatch** (👤). Use one of these two: *(Documented only, not exercised.)*
   - **Dashboard:** Build History → **Retry build** on a `master` build. Preferred, because it builds from Git.
   - **CLI:** `npm run build && npx wrangler deploy`. Only from a **clean, up-to-date `master`** (`git status` clean, `git pull` done). Otherwise the next push overwrites it, and production would briefly run code that isn't on `master`.
 
@@ -201,14 +201,14 @@ Only connect Builds after Phase 5 passes, so the first auto-deploy lands on a Wo
 
 ## Phase 7: Record and hand off (🤖)
 
-- [ ] **Finalize the tracker.** In `context/changes/deployment/deployment-plan.md`, tick every checkbox and fill in the outcomes:
+- [x] **Finalize the tracker.** In `context/changes/deployment/deployment-plan.md`, tick every checkbox and fill in the outcomes (see **Outcome** below):
   - the URL,
   - the version IDs and the rollback target,
   - the names of the secrets that are set,
   - the Supabase region and the Cloudflare plan,
   - the Builds settings: build command, production branch, preview builds off.
-- [ ] **Update CLAUDE.md "CI".** Say that GitHub Actions only lints, builds and runs the smoke test, and that production deploys come from Cloudflare Workers Builds on push to `master`.
-- [ ] **Add follow-up gates** to `deployment-plan.md`. None of them run now:
+- [x] **Update CLAUDE.md "CI".** Say that GitHub Actions only lints, builds and runs the smoke test, and that production deploys come from Cloudflare Workers Builds on push to `master`. *(2026-10-25: done; it also notes the `astro sync` requirement and that Builds ships even when CI fails.)*
+- [x] **Add follow-up gates** to `deployment-plan.md`. None of them run now. *(Listed below; open items stay unticked under **Follow-up gates**.)*
   - **Upgrade to Workers Paid ($5/month) before CSV import ships.** Required because of the CPU cliff and the 50-subrequest cap. Import code must batch LLM calls and do bulk inserts.
   - Consider branch protection on `master`: require GitHub Actions CI to pass and work through PRs.
   - Before turning on preview builds, set up a separate `fin-assist-preview` Worker plus its own Supabase project, because previews share production secrets.
@@ -216,6 +216,31 @@ Only connect Builds after Phase 5 passes, so the first auto-deploy lands on a Wo
   - When the first table lands, run `supabase link` + `supabase db push` for migrations, with RLS enabled.
   - Remove the `/auth/signup` page and endpoint (the PRD has no sign-up flow).
   - Re-check Workers Logs pricing after 2026-12-01.
+
+## Outcome (2026-10-25)
+
+| Item | Value |
+|---|---|
+| Production URL | `https://fin-assist.minik.workers.dev` |
+| Cloudflare | account "Minik" `8fbf703f2edc4d1a78b14caabc96bb67`, **Workers Free** plan, Worker `fin-assist` |
+| Supabase | project `fin-assist`, ref `ckvcyftxbatipvjhrome`, **eu-north-1** (Stockholm), Free plan, sign-up off |
+| Worker secrets | `SUPABASE_URL`, `SUPABASE_KEY` (anon/publishable key) |
+| Bindings | `ASSETS` only (no KV, no Images) |
+| Versions | `87a824c3-…` first deploy, no secrets (**never roll back to it**) → `06b8facc-…` one secret → `1499a110-54d9-4027-abe3-51a942bb46fe` both secrets, manual → `0cd08f45-40d1-488d-89d3-fed0192917af` first Workers Builds deploy |
+| **Rollback target** | `0cd08f45-40d1-488d-89d3-fed0192917af` (current; previous known-good `1499a110-…`) |
+| Workers Builds | repo `minikowsky/fin-assist`, root `/`, build `npx astro sync && npm run lint && npx astro check && npm run build`, deploy `npx wrangler deploy`, production branch `master`, preview builds **off**, no build variables |
+| Supabase auth URLs | Site URL and Redirect URL `https://fin-assist.minik.workers.dev` |
+
+## Follow-up gates (open, none run now)
+
+- [ ] **Upgrade to Workers Paid ($5/month) before CSV import ships.** Fresh-isolate requests already take 13–31 ms of CPU against the 10 ms Free limit (Phase 5); watch Workers Logs for error 1102 until then.
+- [ ] Branch protection on `master`, requiring GitHub Actions CI to pass and work to go through PRs. Builds deploys every push regardless of CI.
+- [ ] Before turning on preview builds, set up a separate `fin-assist-preview` Worker and its own Supabase project.
+- [ ] `OPENROUTER_API_KEY`: add it to `env.schema` and `wrangler secret put` it when prediction lands.
+- [ ] First table: `supabase db push` for migrations, with RLS enabled.
+- [ ] Remove the `/auth/signup` page and endpoint.
+- [ ] Re-check Workers Logs pricing after 2026-12-01.
+- [ ] Supabase Free pauses after about 7 days of inactivity: consider a keep-alive or the Pro plan.
 
 ## Critical files
 
