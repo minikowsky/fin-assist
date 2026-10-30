@@ -31,7 +31,7 @@ Scale: the user and a handful of family members. At 100× that scale the domain 
 
 MVP first flow (first session):
 
-1. User logs in → dashboard with an empty list of expense sets (header: Account · Import CSV).
+1. User signs up with email and password, confirms their email address, and logs in → dashboard with an empty list of expense sets (header: Account · Import CSV).
 2. (optional) Account → manage their own category list and categorization rules.
 3. Import CSV → upload the bank's CSV file.
 4. Review screen: each record shows date, title, amount, description, and a predicted category (`?` when there is no prediction).
@@ -48,7 +48,7 @@ MVP first flow (first session):
 - Categorizing a month's expenses takes ≤ 10 minutes (vs. ~1 hour by hand today).
 
 ### Guardrails
-- No user's financial data is ever visible to another user or to the admin.
+- No user's financial data is ever visible to another user.
 - Import is exact: no record is dropped, duplicated, or altered (amount, date, title).
 - A user's own rule or manual category choice is never overridden by a predicted category.
 
@@ -69,16 +69,16 @@ MVP first flow (first session):
 ## Functional Requirements
 
 ### Accounts & access
-- FR-001: Admin can create a user account (email + password). Priority: must-have
-  > Socratic: Considered "an admin UI is overkill for a few family members" and "a dedicated admin account adds friction". Resolution: no counter-argument; stands as written.
+- FR-001: A visitor can create their own account (sign up with email address + password). The account can be used only after the user confirms their email address. Sign-up is open to anyone. Priority: must-have
+  > Revised 2026-10-30: replaces "Admin can create a user account". The admin role is dropped; family members create their own accounts. Open sign-up accepted: a stranger who signs up sees only their own data.
 - FR-002: User can log in with email address and password. Priority: must-have
   > Socratic: Counter-argument accepted: "it's unclear whether the login is a username or an email, which affects any future password recovery". Resolution: login is an email address.
 - FR-003: User can log out. Priority: must-have
   > Socratic: Considered "session expiry makes log-out cosmetic". Resolution: no counter-argument; stands (shared family devices).
 - FR-004: User can change their own password. Priority: nice-to-have
   > Socratic: Counter-argument accepted: "not needed for a family MVP — the admin sets the password once". Resolution: demoted from must-have to nice-to-have.
-- FR-015: Admin can set a new password for a user account (recovery for a user who forgot theirs). Priority: nice-to-have
-  > Socratic: Counter-argument accepted: "forgotten passwords are too rare among a handful of family members to justify it in the MVP". Resolution: demoted from must-have to nice-to-have.
+  > Revised 2026-10-30: the user now chooses their own password at sign-up; stays nice-to-have.
+- FR-015: Dropped 2026-10-30 (was "Admin can set a new password for a user account"). With no admin role, password recovery happens outside the product (Access Control).
 
 ### Categories & rules
 - FR-005: User can manage their own category list, which starts from a default list (add / rename / remove). The list is the starting set of categories for new imports; changing it never affects records in already saved sets. Priority: must-have
@@ -129,15 +129,14 @@ For each imported record, a matching user-defined rule decides its category; if 
 
 ## Access Control
 
-- **Authentication:** login with password. No self-registration.
+- **Authentication:** login with email address and password.
 - **Roles:**
-  - **Admin:** a dedicated account used only for managing users. Can create user accounts. Has no expense data of its own and **cannot** see any user's transactions, categories, rules, or stats.
-  - **User:** a regular account (flat; all users equal). Has full control over their own imported sets, categories, categorization rules, and stats.
+  - **User:** the only role (flat; all users equal). Has full control over their own imported sets, categories, categorization rules, and stats. There is no admin role.
 - **Visibility:** fully private. A user sees only their own data; nothing is shared between users.
-- **Sign-up vs sign-in:** there is no sign-up flow; the admin creates accounts, and users only sign in.
+- **Sign-up vs sign-in:** open self-registration (FR-001). Anyone can sign up with an email address and password; the account can be used only after the email address is confirmed. After that, the user signs in.
 - **Unauthenticated access:** a visitor who isn't logged in and opens a page that requires login is sent to the login page and, after logging in, returned to the page they requested.
-- **Password recovery:** the admin sets a new password for the user (FR-015, nice-to-have). Until it is built, recovery happens outside the product.
-- Not in admin scope (by choice): deactivating/deleting accounts.
+- **Password recovery:** outside the product. There is no in-app password reset; a forgotten password is reset by hand by the product owner.
+- Not in scope (by choice): deactivating/deleting accounts.
 
 ## Non-Goals
 
@@ -150,7 +149,7 @@ Functional:
 - **No budgets, limits, or alerts.** The MVP describes spending; it doesn't police it.
 - **No data export.** Categorized sets and stats are viewed in the app only.
 - **No multi-currency.** All amounts are in one currency; no conversion.
-- **No self-registration, no self-service password reset, no account deactivation/deletion.** Admin password reset is a nice-to-have (FR-015), out of MVP scope.
+- **No admin role, no password reset in the product, no account deactivation/deletion.** Password recovery happens outside the product (Access Control).
 - **No sharing between users.** Every user's data is fully private (Access Control).
 - **Predictions don't learn from past corrections.** Rules are the user's way to make a correction stick (Business Logic).
 - **User password change is out of MVP scope** (FR-004, nice-to-have).
