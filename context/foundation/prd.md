@@ -42,7 +42,6 @@ MVP first flow (first session):
 
 ### Primary
 - A user can import their bank's CSV file and end up with a saved, named, fully categorized set of expenses (the flow above works end to end).
-- ≥ 75% of predicted categories in a saved set are kept unchanged by the user.
 
 ### Secondary
 - Categorizing a month's expenses takes ≤ 10 minutes (vs. ~1 hour by hand today).
@@ -123,7 +122,7 @@ For each imported record, a matching user-defined rule decides its category; if 
 
 **Inputs:** the record's date, title, amount, and description from the bank CSV, plus the user's own category list and rules. A rule matches when its text appears anywhere in the record's title or description (case-insensitive). If several of the user's rules match one record and point to different categories, the record is marked `?`; no prediction is applied.
 
-**Output:** one category per record. Rule matches take precedence over predictions. A prediction that isn't confident yields `?` rather than a guess (the confidence threshold is set during implementation, tuned against the ≥ 75% kept-unchanged target). Income, refunds, and own-account transfers fall into special categories that are excluded from spending charts.
+**Output:** one category per record. Rule matches take precedence over predictions. A prediction that isn't confident yields `?` rather than a guess (the confidence threshold is set during implementation). Income, refunds, and own-account transfers fall into special categories that are excluded from spending charts.
 
 **How the user meets it:** right after import, on the review screen, every record already shows a category (or `?`). The user corrects what's wrong and resolves every `?` before saving. Predictions don't learn from past corrections; to make a correction stick for future imports, the user writes a rule. The user's category list applies to new imports; records in saved sets keep the categories they were saved with.
 

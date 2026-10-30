@@ -31,7 +31,7 @@ checkpoint:
     - topic: "starting categories"
       decision: "every new account gets a default category list the user can edit"
     - topic: "prediction accuracy metric"
-      decision: "share of predicted categories kept unchanged by the user in a saved set"
+      decision: "revised 2026-10-30: dropped; no prediction accuracy target in the MVP"
     - topic: "MVP capability additions"
       decision: "added open/edit saved set, delete saved set, log out, change own password"
     - topic: "rules priority"
@@ -75,7 +75,7 @@ checkpoint:
     - topic: "categories in saved sets (OQ5)"
       decision: "category list changes don't affect saved sets; editing a saved set offers the current list plus categories already used in that set"
     - topic: "prediction confidence threshold (OQ6)"
-      decision: "implementation detail, tuned against the ≥ 75% kept-unchanged target"
+      decision: "implementation detail"
     - topic: "per-category totals (2026-10-13)"
       decision: "must-have, folded into FR-014: chart + list of spending categories with their totals + the set's total spending; special categories (income, refunds, transfers) get no totals"
   frs_drafted: 15
@@ -113,7 +113,6 @@ MVP first flow (first session):
 
 ### Primary
 - A user can import their bank's CSV file and end up with a saved, named, fully categorized set of expenses (the flow above works end to end).
-- ≥ 75% of predicted categories in a saved set are kept unchanged by the user.
 
 ### Secondary
 - Categorizing a month's expenses takes ≤ 10 minutes (vs. ~1 hour by hand today).
@@ -196,7 +195,7 @@ For each imported record, a matching user-defined rule decides its category; if 
 
 **Inputs:** the record's date, title, amount, and description from the bank CSV, plus the user's own category list and rules. A rule matches when its text appears anywhere in the record's title or description (case-insensitive). If several of the user's rules match one record and point to different categories, the record is marked `?`; no prediction is applied.
 
-**Output:** one category per record. Rule matches take precedence over predictions. A prediction that isn't confident yields `?` rather than a guess (the confidence threshold is set during implementation, tuned against the ≥ 75% kept-unchanged target). Income, refunds, and own-account transfers fall into special categories that are excluded from spending charts.
+**Output:** one category per record. Rule matches take precedence over predictions. A prediction that isn't confident yields `?` rather than a guess (the confidence threshold is set during implementation). Income, refunds, and own-account transfers fall into special categories that are excluded from spending charts.
 
 **How the user meets it:** right after import, on the review screen, every record already shows a category (or `?`). The user corrects what's wrong and resolves every `?` before saving. Predictions don't learn from past corrections; to make a correction stick for future imports, the user writes a rule. The user's category list applies to new imports; records in saved sets keep the categories they were saved with.
 
@@ -245,7 +244,7 @@ None open. Resolved on 2026-10-13:
 3. ~~Monthly categorization time target~~ → ≤ 10 minutes (Secondary criterion).
 4. ~~Overlapping sets in Stats~~ → dissolved: charts cover one set at a time (FR-014); multi-set charts are a non-goal.
 5. ~~Saved set after category removal~~ → category list changes never affect saved sets (FR-005, FR-012).
-6. ~~Prediction confidence threshold~~ → decided during implementation, tuned against the ≥ 75% kept-unchanged target (Business Logic).
+6. ~~Prediction confidence threshold~~ → decided during implementation (Business Logic).
 
 ## Quality cross-check
 
