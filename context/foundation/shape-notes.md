@@ -2,7 +2,7 @@
 project: "fin-assist"
 context_type: greenfield
 created: 2026-10-11
-updated: 2026-10-13
+updated: 2026-11-02
 product_type: web-app
 target_scale:
   users: small
@@ -34,6 +34,8 @@ checkpoint:
       decision: "revised 2026-10-30: dropped; no prediction accuracy target in the MVP"
     - topic: "MVP capability additions"
       decision: "added open/edit saved set, delete saved set, log out, change own password"
+    - topic: "record editing (2026-11-02)"
+      decision: "every record is fully editable (date, title, amount, description, category) both during review (FR-009) and in a saved set (FR-012); in a saved set the category comes from the current list plus categories already used in that set"
     - topic: "rules priority"
       decision: "initially demoted to nice-to-have; promoted back to must-have in the challenge round (rules + AI is the differentiator)"
     - topic: "login identifier"
@@ -106,7 +108,7 @@ MVP first flow (first session):
 2. (optional) Account → manage their own category list and categorization rules.
 3. Import CSV → upload the bank's CSV file.
 4. Review screen: each record shows date, title, amount, description, and a predicted category (`?` when there is no prediction).
-5. User corrects wrong categories, or picks one from the list for any `?`.
+5. User corrects wrong categories, or picks one from the list for any `?`. Any record's data (date, title, amount, description) can also be edited.
 6. User names the set (e.g. "May 2026") and saves it.
 7. Redirect to dashboard → the named set appears in the list.
 8. Dashboard shows, for the set selected in the list (the newest set by default), a chart of spending per category, a list of categories with their total amounts beside it, and the set's total spending.
@@ -119,7 +121,7 @@ MVP first flow (first session):
 
 ### Guardrails
 - No user's financial data is ever visible to another user.
-- Import is exact: no record is dropped, duplicated, or altered (amount, date, title).
+- Import is exact: no record is dropped, duplicated, or altered (amount, date, title) by the import itself; a record's data changes only when the user edits it.
 - A user's own rule or manual category choice is never overridden by a predicted category.
 
 Timeline budget: `mvp_weeks: 3` (within the 3-week default; no extended-timeline acknowledgment needed).
@@ -163,16 +165,18 @@ Timeline budget: `mvp_weeks: 3` (within the 3-week default; no extended-timeline
   > Socratic: Considered "overlapping imports create duplicate transactions across sets" and "the bank may change its CSV layout". Resolution: no counter-argument; stands as written.
 - FR-008: User can see the imported records (date, title, amount, description), each with a predicted category or `?` when there is none. Income, refunds, and transfers between own accounts get special categories (e.g. "Income", "Transfer") that are excluded from spending charts. Priority: must-have
   > Socratic: Counter-argument accepted: "a bank CSV contains income, refunds, and own-account transfers; giving them spending categories distorts Stats". Resolution: special categories excluded from spending charts.
-- FR-009: User can change any record's category to one from their list. Priority: must-have
+- FR-009: User can edit any data of any record during review: date, title, amount, description, and category (chosen from their list). Priority: must-have
   > Socratic: Considered "corrections aren't remembered across imports" and "one-at-a-time changes are slow for long months". Resolution: no counter-argument; stands as written.
+  > Revised 2026-11-02: was "User can change any record's category to one from their list". Every record is fully editable during review, not only its category.
 
 ### Expense sets
 - FR-010: User can name an imported set and save it. Priority: must-have
   > Socratic: Considered "sets duplicate what a date filter does" and "unsaved corrections are lost if the user leaves before saving". Resolution: no counter-argument; stands as written.
 - FR-011: User can see the list of their saved sets on the dashboard. Priority: must-have
   > Socratic: Considered "a name alone doesn't reveal date range or totals". Resolution: no counter-argument; stands as written.
-- FR-012: User can open a saved set to view it and edit its categories, choosing from their current category list plus any categories already used in that set. Priority: must-have
+- FR-012: User can open a saved set to view it and edit all of its data, including each record's date, title, amount, description, and category (chosen from their current category list plus any categories already used in that set). Priority: must-have
   > Socratic: Considered "editing an old set silently changes historical Stats" and "it duplicates the import review screen". Resolution: no counter-argument; stands as written.
+  > Revised 2026-11-02: was "edit its categories"; a saved set is now fully editable, same as during review (FR-009).
 - FR-013: User can delete a saved set. Priority: must-have
   > Socratic: Considered "deletion is irreversible and loses all manual corrections". Resolution: no counter-argument; stands as written.
 
@@ -197,7 +201,7 @@ For each imported record, a matching user-defined rule decides its category; if 
 
 **Output:** one category per record. Rule matches take precedence over predictions. A prediction that isn't confident yields `?` rather than a guess (the confidence threshold is set during implementation). Income, refunds, and own-account transfers fall into special categories that are excluded from spending charts.
 
-**How the user meets it:** right after import, on the review screen, every record already shows a category (or `?`). The user corrects what's wrong and resolves every `?` before saving. Predictions don't learn from past corrections; to make a correction stick for future imports, the user writes a rule. The user's category list applies to new imports; records in saved sets keep the categories they were saved with.
+**How the user meets it:** right after import, on the review screen, every record already shows a category (or `?`). The user corrects what's wrong (any record's date, title, amount, description, or category) and resolves every `?` before saving. Predictions don't learn from past corrections; to make a correction stick for future imports, the user writes a rule. The user's category list applies to new imports; records in saved sets keep the categories they were saved with.
 
 ## Access Control
 
