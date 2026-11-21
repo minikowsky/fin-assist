@@ -79,6 +79,8 @@ const scriptsConfig = defineConfig({
 
 export default defineConfig(
   includeIgnoreFile(gitignorePath),
+  // Vendored AI-toolkit skills (10x-cli); not app code.
+  { ignores: [".claude/**"] },
   baseConfig,
   reactConfig,
   eslintPluginAstro.configs["flat/recommended"],
