@@ -3,7 +3,7 @@ project: fin-assist
 version: 1
 status: draft
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-21
 prd_version: 1
 main_goal: speed
 top_blocker: time
@@ -41,7 +41,7 @@ Categorizing expenses by hand costs the user and their family about an hour a mo
 
 | ID   | Issue | Change ID                   | Outcome (user can …)                                                                      | Prerequisites | PRD refs                                | Status   |
 | ---- | ----- | --------------------------- | ----------------------------------------------------------------------------------------- | ------------- | --------------------------------------- | -------- |
-| F-01 | #1    | user-data-isolation         | (foundation) migrations reach production safely; a two-user isolation check exists      | —             | Success Criteria §Guardrails, Access Control §Visibility | ready    |
+| F-01 | #1    | user-data-isolation         | (foundation) migrations reach production safely; a two-user isolation check exists      | —             | Success Criteria §Guardrails, Access Control §Visibility | planning |
 | S-01 | #2    | open-signup-and-return      | sign up in production, confirm email, log in back to the requested page, log out          | —             | FR-001, FR-002, FR-003, Access Control, NFR (Polish UI) | ready    |
 | S-02 | #3    | csv-import-review           | upload the bank CSV and review/edit every record, picking categories from a default list  | —             | US-01, FR-007, FR-008, FR-009           | ready    |
 | S-03 | #4    | first-saved-expense-set     | name and save the reviewed set and see it in the dashboard list                           | F-01, S-02    | US-01, FR-010, FR-011                   | proposed |
@@ -89,7 +89,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Blockers:** —
 - **Unknowns:** —
 - **Risk:** Kept deliberately thin. It creates no domain tables, since each slice adds its own. Skipping it would mean the first saved financial data reaches production with no proof of isolation, and that guardrail cannot be fixed after a leak.
-- **Status:** ready
+- **Status:** planning
 
 ## Slices
 
