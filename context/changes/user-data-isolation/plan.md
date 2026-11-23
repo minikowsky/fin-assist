@@ -12,13 +12,14 @@ No domain tables are created. Each slice adds its own tables and extends the che
 
 ## Current State Analysis
 
-- **No migrations exist.** There is no `supabase/migrations/` directory and no `supabase/seed.sql`. Production Supabase (`ckvcyftxbatipvjhrome`, eu-north-1, Free) is linked locally but has never received `db push` (`context/changes/deployment/deployment-plan.md:449`, open follow-up).
-- **Deploys are decoupled from CI.** Cloudflare Workers Builds deploys every push to `master` (build `npx astro sync && npm run lint && npx astro check && npm run build`, deploy `npx wrangler deploy`), independently of GitHub Actions. `master` is unprotected (CLAUDE.md "CI"; `deployment-plan.md:440`).
+- **No migrations exist.** There is no `supabase/migrations/` directory and no `supabase/seed.sql`. Production Supabase (`ckvcyftxbatipvjhrome`, eu-north-1, Free) is linked locally but has never received `db push` (`context/changes/deployment/deployment-plan.md:240`, open follow-up).
+- **Deploys are decoupled from CI.** Cloudflare Workers Builds deploys every push to `master` (build `npx astro sync && npm run lint && npx astro check && npm run build`, deploy `npx wrangler deploy`), independently of GitHub Actions. `master` is unprotected (CLAUDE.md "CI"; `deployment-plan.md:18`, `:237`).
 - **Fix-forward policy already stated.** Migrations must be backward-compatible with the previous Worker version, because a Worker rollback doesn't roll back the DB (`context/foundation/infrastructure.md:111`). Until now, data-dropping production migrations were human-only (`infrastructure.md:115`). This plan replaces that with an enforced guard plus an explicit override marker.
 - **Smoke test is single-user.** `scripts/smoke.mjs:6-9` has one cookie jar. It signs up a fresh user (local/CI, where `enable_confirmations = false`), or signs in with `SMOKE_EMAIL`/`SMOKE_PASSWORD` (production). `request()` returns only status and location (`scripts/smoke.mjs:25-38`).
-- **CI already runs a local Supabase.** `.github/workflows/ci.yml:116-123` uses `supabase/setup-cli@v1` pinned to `3.2.0` and runs `supabase start` (which applies migrations), then preview + smoke. No test runner is installed in the repo. pgTAP via `supabase test db` is available in the local Supabase stack.
-- **CLI version split.** The npm devDependency `supabase` resolves to `2.117.0` (`package-lock.json:9395-9397`), while CI pins `3.2.0`. `supabase@3.2.0` exists on npm. `db push` supports `--db-url`, `--dry-run` and the global `--yes`.
-- **The dashboard shows the signed-in user's email** (`src/pages/dashboard.astro:13`). That gives the smoke test something user-specific to assert today.
+- **CI already runs a local Supabase.** `.github/workflows/ci.yml:35-42` uses `supabase/setup-cli@v1` pinned to `3.2.0` and runs `supabase start` (which applies migrations), then preview + smoke. No test runner is installed in the repo. pgTAP via `supabase test db` is available in the local Supabase stack.
+- **CLI version split.** The npm devDependency `supabase` resolves to `2.117.0` (`package-lock.json:9395-9397`), while CI pins `3.2.0`. `supabase@3.2.0` exists on npm. `db push` and `migration list` take `--remote=<db-url>`, `db push` takes `--dry-run`, and `--yes` is global. `--db-url` still works but is deprecated ("removed in v4"). Without a target flag both commands use the local stack.
+- **Hosted Data API grants changed.** Since 2026-10-30, hosted Supabase no longer grants `anon`, `authenticated` or `service_role` access to new `public` tables and sequences by default (Supabase changelog #45329). CLI 3.2.0 keeps the old auto-grant locally unless `[api] auto_expose_new_tables = false` is set, and `supabase/config.toml` doesn't set it. Left alone, local and CI would grant `authenticated` while production wouldn't. Nobody has queried the production project's actual default ACL yet.
+- **The dashboard shows the signed-in user's email** (`src/pages/dashboard.astro:14`). That gives the smoke test something user-specific to assert today.
 - **No `context/foundation/lessons.md`** and no `docs/reference/contract-surfaces.md` exist yet.
 
 ## Desired End State
@@ -28,7 +29,10 @@ No domain tables are created. Each slice adds its own tables and extends the che
 - CI fails if:
   - a migration file is misnamed or contains a destructive statement without `-- allow-destructive: <reason>`;
   - any `public` table lacks RLS, has no policy, uses a `FOR ALL` policy, or has a policy for `anon`/`public`;
+  - any `public` view lacks `security_invoker`, or a materialized view is granted to `anon`/`authenticated`;
   - the fixture isolation test shows user B can read or modify user A's rows.
+- `master` accepts changes only through PRs whose `ci` and `smoke` checks pass (a branch ruleset with no bypass). This makes the RLS checks and the review of any `-- allow-destructive` marker a gate on every production migration.
+- New `public` tables get no grants by default locally, in CI and in production. Each table migration grants `authenticated` explicitly.
 - `npm run smoke` signs in two users. Against production it requires both A and B credentials and asserts each session sees only its own identity. It has a marked section where slices append cross-user data assertions.
 - CLAUDE.md documents the migration conventions (additive-only, RLS-per-operation, override marker, test template) and the new deploy path.
 
@@ -41,10 +45,10 @@ Verify by:
 ### Key Discoveries:
 
 - `scripts/smoke.mjs:43-51`: signup step is skipped in existing-account mode. The two-user refactor must keep the plain-signup CI mode unchanged in behavior.
-- `.github/workflows/ci.yml:122`: CI starts Supabase with most services excluded. `supabase test db` only needs the DB, so the step fits in the existing smoke job after `supabase start`.
-- `supabase/config.toml:5`: `project_id = "10x-astro-starter"`. Harmless for `db push --db-url`; not renamed here.
-- `deployment-plan.md:287`: never `supabase config push` to production. `db push` doesn't touch auth config, so this rule still holds.
-- `deployment-plan.md:344`: `SUPABASE_KEY` must stay the anon/publishable key. The new `SUPABASE_DB_URL` is a **Builds-only** secret, never a Worker runtime secret.
+- `.github/workflows/ci.yml:41`: CI starts Supabase with most services excluded. `supabase test db` only needs the DB, so the step fits in the existing smoke job after `supabase start`.
+- `supabase/config.toml:5`: `project_id = "10x-astro-starter"`. Harmless for `db push --remote=<url>`; not renamed here.
+- `deployment-plan.md:78`: never `supabase config push` to production. `db push` doesn't touch auth config, so this rule still holds.
+- `deployment-plan.md:227`: `SUPABASE_KEY` must stay the anon/publishable key. The new `SUPABASE_DB_URL` is a **Builds-only** secret, never a Worker runtime secret.
 
 ## What We're NOT Doing
 
@@ -54,17 +58,17 @@ Verify by:
 - No shared SQL test-helper library (e.g. basejump `supabase_test_helpers`). The fixture test is the copyable template.
 - No revocation of default function `EXECUTE` privileges (granted to `PUBLIC`), and no change to existing Supabase-owned grants.
 - No changes to the sign-in redirect target or sign-up. That is S-01, which also edits `scripts/smoke.mjs` (expect a small merge).
-- No branch protection on `master`. It stays an open follow-up in `deployment-plan.md`.
 - No renaming of `project_id` in `supabase/config.toml`.
 
 ## Implementation Approach
 
 Build the local, reversible pieces first (conventions, guard, tests, smoke), all verified in CI on a feature branch (`user-data-isolation`, PR to `master`). Preview builds are off, so branch pushes don't deploy. The production rollout goes last, in an order that never breaks Builds:
 
-1. Merge the code; the deploy command is still the old one, so no migration runs.
-2. Add the Builds secret and do a local dry run.
-3. Switch the deploy command.
-4. Retry the build, which applies the migration.
+1. Enable the `master` branch ruleset (PR plus required `ci` and `smoke` checks).
+2. Merge the code through it; the deploy command is still the old one, so no migration runs.
+3. Add the Builds secret and do a local dry run.
+4. Switch the deploy command.
+5. Retry the build, which applies the migration.
 
 Migrations run in the **deploy** command, after the build command's quality gates pass, so a lint or type failure never migrates production.
 
@@ -92,11 +96,13 @@ Align the CLI version, add the first real migration, add the dependency-free gua
 
 #### 2. First migration: revoke anon defaults
 
-**File**: `supabase/migrations/<YYYYMMDDHHmmss>_revoke_anon_default_privileges.sql`
+**File**: `supabase/migrations/<YYYYMMDDHHmmss>_revoke_anon_default_privileges.sql`, `supabase/config.toml`
 
-**Intent**: Defense in depth. The app only reads data as `authenticated`, so future `public` tables and sequences created by migrations (owned by `postgres`) should grant nothing to `anon`. RLS remains the per-row gate. This is also the first migration that proves the production path.
+**Intent**: Defense in depth. The app only reads data as `authenticated`, so future `public` tables and sequences created by migrations (owned by `postgres`) should grant nothing to `anon`. RLS remains the per-row gate. This is also the first migration that proves the production path. On hosted Supabase the revoke matches the post-2026-10-30 default, so it changes nothing there. Setting `auto_expose_new_tables = false` stops local and CI from auto-granting `authenticated`, so they match production and every table has to grant explicitly.
 
-**Contract**: The header comment states the purpose. Default privileges only; no objects created. Any future public-read feature must grant to `anon` explicitly.
+**Contract**:
+- The header comment states the purpose. Default privileges only; no objects created. Any future public-read feature must grant to `anon` explicitly.
+- In `supabase/config.toml`, `[api]` gets `auto_expose_new_tables = false`. It's local-stack only and is never `config push`ed. Restart the local stack (`npx supabase stop && npx supabase start`) after the change.
 
 ```sql
 alter default privileges for role postgres in schema public revoke all on tables from anon;
@@ -107,19 +113,21 @@ alter default privileges for role postgres in schema public revoke all on sequen
 
 **File**: `scripts/check-migrations.mjs` (new), `package.json`
 
-**Intent**: Enforce the additive-only rule at every point where migrations are verified or applied, because Builds applies them to production automatically. It is dependency-free (Node built-ins only), like `smoke.mjs`.
+**Intent**: Enforce the additive-only rule at every point where migrations are verified or applied, because Builds applies them to production automatically. It is dependency-free (Node built-ins only), like `smoke.mjs`. `eslint.config.js:76` declares only `console`, `process`, `fetch` and `URLSearchParams` for `scripts/**/*.mjs`, so import other Node APIs (`URL`, `setTimeout`, `Buffer`, …) from `node:*` modules, or extend those globals.
 
 **Contract**:
 - `npm run db:check` → `node scripts/check-migrations.mjs`. It scans every `supabase/migrations/*.sql`, exits `0` when clean and `1` with `file:line` and the offending statement otherwise. It also passes when the directory has no migrations.
 - Filenames must match `^\d{14}_[a-z0-9_]+\.sql$`.
 - SQL comments are stripped before matching, but the marker is read from the raw file.
 - These patterns are blocked (case-insensitive):
-  - `DROP TABLE|SCHEMA|COLUMN|VIEW|MATERIALIZED VIEW|TYPE`
+  - any `DROP` not on the allowlist below. This is an allowlist, so `DROP TABLE|SCHEMA|COLUMN|VIEW|MATERIALIZED VIEW|TYPE|EXTENSION|SEQUENCE|DOMAIN|OWNED|ROLE`, `ALTER TABLE … DROP <column>` without the `COLUMN` keyword, and any future object type are all blocked
+  - `CASCADE` anywhere, including on allowed drops (`drop function … cascade` drops dependent generated columns)
   - `TRUNCATE`
   - `RENAME` (any `ALTER … RENAME`)
   - `ALTER COLUMN … TYPE` / `ALTER COLUMN … SET DATA TYPE`
   - `DELETE FROM`
-- `DROP POLICY|TRIGGER|FUNCTION|INDEX|CONSTRAINT` stay allowed, because they don't lose data and replacing policies needs them.
+- Allowlist: `DROP POLICY|TRIGGER|FUNCTION|INDEX|CONSTRAINT|DEFAULT|NOT NULL` (without `CASCADE`). These don't lose data, replacing policies needs them, and `drop default` / `drop not null` are expand steps.
+- `UPDATE` stays allowed on purpose: backfills are part of expand/contract. Review covers them, not the guard.
 - A file containing `-- allow-destructive: <non-empty reason>` is exempt, and the script prints the reason as a notice.
 
 #### 4. CI
@@ -140,8 +148,13 @@ alter default privileges for role postgres in schema public revoke all on sequen
 - migrations are applied to production automatically on push to `master`;
 - migrations must be additive and backward-compatible with the running Worker (expand/contract for destructive changes);
 - the `-- allow-destructive: <reason>` override, and when it's acceptable;
-- every user-owned table gets RLS plus separate `select`/`insert`/`update`/`delete` policies `to authenticated`, keyed on `(select auth.uid()) = user_id`, with no `for all` and no `anon` policies;
-- every new table ships with a pgTAP isolation test copied from the Phase 2 template.
+- every user-owned table gets RLS, an explicit `grant select, insert, update, delete on public.<table> to authenticated` (nothing is granted by default, locally or in production; never grant to `anon`), and separate `select`/`insert`/`update`/`delete` policies `to authenticated`, keyed on `(select auth.uid()) = user_id`, with no `for all` and no `anon` policies;
+- every new table ships with a pgTAP isolation test copied from the Phase 2 template;
+- views in `public` are created `with (security_invoker = true)` (`postgres` has BYPASSRLS, so any other view leaks every user's rows), and materialized views are never granted to `anon` or `authenticated`;
+- migration history stays linear:
+  - before merging, if `master` has gained a newer migration, rename yours to a fresh timestamp (`db push` refuses out-of-order files);
+  - run `npm run db:deploy` by hand only from an up-to-date `master` (a migration applied from a branch makes every later push fail);
+  - if a Builds deploy fails on history drift, recover by renaming the file or with `supabase migration repair`, never with `--include-all`.
 
 Add `npm run db:check` to **Commands**.
 
@@ -175,13 +188,15 @@ Add a DB-level catalog guard that enforces the RLS convention on every `public` 
 
 **File**: `supabase/tests/database/rls_catalog_guard.test.sql` (new)
 
-**Intent**: Fail CI the moment any slice adds a `public` table that breaks the convention. It passes vacuously while there are no tables.
+**Intent**: Fail CI the moment any slice adds a `public` table or view that breaks the convention. It passes vacuously while there are no tables.
 
 **Contract**: pgTAP inside `begin … rollback` (`create extension if not exists pgtap with schema extensions` inside the transaction). It asserts, over `pg_class` (relkind `r`/`p`) in schema `public` joined to `pg_policies`, that the result sets of the following are empty:
 - tables with `relrowsecurity = false`;
 - tables with zero policies;
 - policies with `cmd = 'ALL'`;
-- policies whose `roles` include `anon` or `public`.
+- policies whose `roles` include `anon` or `public`;
+- views (relkind `v`) in `public` without `security_invoker=true` in `reloptions`;
+- materialized views (relkind `m`) in `public` with any privilege granted to `anon` or `authenticated`.
 
 Failure messages name the offending table or policy.
 
@@ -196,11 +211,12 @@ Failure messages name the offending table or policy.
 - Setup:
   - create `public.rls_fixture` (`id`, `user_id uuid not null default auth.uid() references auth.users`, `note text`);
   - enable RLS;
+  - `grant select, insert, update, delete on public.rls_fixture to authenticated` (explicit, per the convention);
   - add four per-operation policies `to authenticated` on `(select auth.uid()) = user_id` (with `with check` on insert/update);
   - insert users A and B into `auth.users`.
 - Assertions:
-  - `anon` has no `select` privilege on `rls_fixture`;
-  - `authenticated` does;
+  - right after `create table` and before the grant, neither `anon` nor `authenticated` has `select` on `rls_fixture` (local defaults match hosted);
+  - after the grant, `authenticated` has `select`, `insert`, `update` and `delete`, and `anon` still has none;
   - as A, insert a row; as A, it is visible;
   - as B:
     - `select` returns 0 rows;
@@ -241,7 +257,7 @@ Refactor `scripts/smoke.mjs` so it runs two independent user sessions. Add a fir
 
 **File**: `scripts/smoke.mjs`
 
-**Intent**: Each user gets its own cookie jar, so slices can assert that "B never sees A's data" over HTTP, including against production. It stays dependency-free.
+**Intent**: Each user gets its own cookie jar, so slices can assert that "B never sees A's data" over HTTP, including against production. It stays dependency-free, and uses the same lint rule for Node APIs as Phase 1 §3.
 
 **Contract**:
 - A `createSession(email, password)` (or equivalent) owns a cookie jar and a `request(path, opts)` that also returns the response `body` text.
@@ -259,11 +275,11 @@ Refactor `scripts/smoke.mjs` so it runs two independent user sessions. Add a fir
 
 #### 2. Docs
 
-**File**: `CLAUDE.md`
+**File**: `CLAUDE.md`, `README.md`
 
 **Intent**: Keep the smoke command description accurate.
 
-**Contract**: The `npm run smoke` line mentions the two-user mode and the `SMOKE_EMAIL_B`/`SMOKE_PASSWORD_B` requirement for existing-account runs.
+**Contract**: The `npm run smoke` line in CLAUDE.md and the smoke line and section in README.md (`:58`, `:172-181`) mention the two-user mode and the `SMOKE_EMAIL_B`/`SMOKE_PASSWORD_B` requirement for existing-account runs.
 
 ### Success Criteria:
 
@@ -291,13 +307,13 @@ Add the `db:deploy` wrapper, merge, then wire it into Workers Builds and roll ou
 
 **File**: `scripts/db-deploy.mjs` (new), `package.json`
 
-**Intent**: A single, safe entry point for Builds and for a manual escape hatch.
+**Intent**: A single, safe entry point for Builds and for a manual escape hatch. Dependency-free; the lint rule for Node APIs from Phase 1 §3 applies.
 
 **Contract**:
 - `npm run db:deploy` → `node scripts/db-deploy.mjs`. In order:
   1. exit `1` with a clear message if `SUPABASE_DB_URL` is unset or empty;
   2. run the `check-migrations` logic (exit `1` on failure);
-  3. run `supabase db push --db-url "$SUPABASE_DB_URL" --yes` via `child_process`, with inherited stdio for the CLI's own output.
+  3. run `supabase db push --remote="$SUPABASE_DB_URL" --yes` via `child_process` (never `--db-url`, which is deprecated), with inherited stdio for the CLI's own output.
 - It never prints the URL.
 - It propagates the CLI's exit code.
 - Optional `--dry-run` passthrough for a 👤 pre-check.
@@ -309,34 +325,49 @@ Add the `db:deploy` wrapper, merge, then wire it into Workers Builds and roll ou
 **Intent**: Enable automatic migrations without ever breaking a Builds run.
 
 **Contract**:
-1. 👤 Merge the PR to `master`. Builds deploys with the **old** deploy command, so no migration runs.
-2. 👤 Supabase dashboard → Authentication → Users → add the second smoke user with **Auto Confirm**, and store `SMOKE_EMAIL_B`/`SMOKE_PASSWORD_B` in the password manager.
-3. 👤 Copy the Session pooler URL (percent-encoded password) and add it in Cloudflare → `fin-assist` → Settings → Builds → Variables and secrets as **encrypted** `SUPABASE_DB_URL`. Never as a Worker runtime secret.
-4. 👤 Locally, run `SUPABASE_DB_URL=… npm run db:deploy -- --dry-run`. It should list exactly the one migration.
-5. 👤 Change the Builds deploy command to `npm run db:deploy && npx wrangler deploy`.
-6. 👤 Build History → Retry build on `master`.
+1. 👤 GitHub → Settings → Rules → Rulesets → new branch ruleset targeting `master`:
+   - require a pull request (0 approvals, since this is a solo repo);
+   - require the `ci` and `smoke` status checks to pass;
+   - block force pushes and deletions;
+   - leave the **bypass list empty**.
+
+   Enable it before merging, so this PR is the first to go through it.
+2. 👤 Merge the PR to `master`. Builds deploys with the **old** deploy command, so no migration runs.
+3. 👤 Supabase dashboard → Authentication → Users → add the second smoke user with **Auto Confirm**, and store `SMOKE_EMAIL_B`/`SMOKE_PASSWORD_B` in the password manager.
+4. 👤 Copy the Session pooler URL (percent-encoded password) and add it in Cloudflare → `fin-assist` → Settings → Builds → Variables and secrets as **encrypted** `SUPABASE_DB_URL`. Never as a Worker runtime secret.
+5. 👤 Locally, run `SUPABASE_DB_URL=… npm run db:deploy -- --dry-run`. It should list exactly the one migration.
+6. 👤 Change the Builds deploy command to `npm run db:deploy && npx wrangler deploy`.
+7. 👤 Build History → Retry build on `master`.
+8. 👤 Supabase SQL editor, read-only: `select defaclrole::regrole, defaclobjtype, defaclacl from pg_default_acl where defaclnamespace = 'public'::regnamespace;`. The `postgres` entries for tables (`r`) and sequences (`S`) must grant nothing to `anon` or `authenticated`. Record the result in `deployment-plan.md`.
 
 #### 3. Docs and trackers
 
-**File**: `CLAUDE.md`, `context/changes/deployment/deployment-plan.md`
+**File**: `CLAUDE.md`, `context/changes/deployment/deployment-plan.md`, `context/foundation/infrastructure.md`, `README.md`
 
 **Intent**: Record the new deploy path so nobody bypasses or duplicates it.
 
 **Contract**:
 - CLAUDE.md:
   - The **CI** section's Builds deploy command becomes `npm run db:deploy && npx wrangler deploy`. It notes the `SUPABASE_DB_URL` Builds secret and that migrations apply before each deploy.
+  - The note "a push to `master` ships even if CI fails" is replaced: `master` is protected by a ruleset (PR, with `ci` and `smoke` required, no bypass).
   - **Commands** gains `npm run db:deploy` and `npm run test:db`.
 - `deployment-plan.md`:
   - tick the "First table: `supabase db push`" follow-up with the outcome (date, version ID);
+  - tick the "Branch protection on `master`" follow-up;
+  - record the production `pg_default_acl` result;
   - add the deploy command and the `SUPABASE_DB_URL` Builds secret to the **Outcome** table;
   - update the **Rollback target**.
+- `infrastructure.md:113-115` (Approval):
+  - "Supabase production migrations that drop data" moves out of "Human only, in the dashboard";
+  - in its place, a note that migrations auto-apply on merge to `master`, and that destructive ones need the `-- allow-destructive` marker in a reviewed PR behind the `master` ruleset.
+- `README.md` **CI** section (`:183-188`): the `ci` job also runs `db:check`; the `smoke` job also runs `supabase test db` and the two-user smoke.
 
 ### Success Criteria:
 
 #### Automated Verification:
 
 - `npm run db:deploy` with `SUPABASE_DB_URL` unset exits non-zero with a clear message
-- `SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm run db:deploy` succeeds against local Supabase, and a second run reports nothing to push
+- `SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm run db:deploy` succeeds against local Supabase and reports the remote up to date (`supabase start` already applied the migration); a second run does the same
 - `npm run db:check`, `npm run lint`, `npx astro check` and `npm run build` pass
 
 #### Manual Verification:
@@ -345,9 +376,11 @@ Add the `db:deploy` wrapper, merge, then wire it into Workers Builds and roll ou
 - `SUPABASE_DB_URL` is set as an encrypted Builds variable, not a Worker secret (`npx wrangler secret list` still shows only `SUPABASE_URL`, `SUPABASE_KEY`)
 - Production dry run lists exactly the revoke-anon migration
 - The retried Builds run succeeds, its log shows the migration applied before `wrangler deploy`, and no password appears in the log
-- `npx supabase migration list --db-url "$SUPABASE_DB_URL"` shows the migration applied remotely
+- `npx supabase migration list --remote="$SUPABASE_DB_URL"` shows the migration applied remotely
 - `BASE_URL=https://fin-assist.minik.workers.dev SMOKE_EMAIL=… SMOKE_PASSWORD=… SMOKE_EMAIL_B=… SMOKE_PASSWORD_B=… npm run smoke` passes all steps
 - CLAUDE.md and `deployment-plan.md` reflect the new deploy command, the secret and the new rollback target
+- Production `pg_default_acl` shows that `postgres`'s `public` tables and sequences grant nothing to `anon` or `authenticated`, and the result is recorded in `deployment-plan.md`
+- The `master` ruleset is active: a direct push to `master` is rejected, and the PR merge required green `ci` and `smoke`
 
 **Implementation Note**: After completing this phase and all automated verification passes, pause here for manual confirmation from the human that the manual testing was successful before proceeding to the next phase.
 
@@ -390,7 +423,7 @@ Add the `db:deploy` wrapper, merge, then wire it into Workers Builds and roll ou
 
 - Roadmap item: `context/foundation/roadmap.md` (F-01)
 - PRD guardrails and visibility: `context/foundation/prd.md:49-52`, `context/foundation/prd.md:131-140`
-- Deployment tracker and follow-ups: `context/changes/deployment/deployment-plan.md:443-452`
+- Deployment tracker and follow-ups: `context/changes/deployment/deployment-plan.md:233-242`
 - Fix-forward rule: `context/foundation/infrastructure.md:111-115`
 - Smoke test: `scripts/smoke.mjs`
 - CI: `.github/workflows/ci.yml`
@@ -449,3 +482,5 @@ Add the `db:deploy` wrapper, merge, then wire it into Workers Builds and roll ou
 - [ ] 4.8 `supabase migration list` shows the migration applied remotely
 - [ ] 4.9 Production two-user smoke passes all steps
 - [ ] 4.10 CLAUDE.md and `deployment-plan.md` reflect the new deploy command, secret and rollback target
+- [ ] 4.11 Production `pg_default_acl` grants nothing to `anon`/`authenticated` on `public` tables and sequences, recorded
+- [ ] 4.12 `master` ruleset rejects direct pushes and required green `ci` and `smoke` for the merge

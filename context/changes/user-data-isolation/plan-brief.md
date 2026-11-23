@@ -24,6 +24,8 @@ Every Builds deploy first applies pending migrations to production, behind a gua
 | Isolation check location | pgTAP (`supabase test db`) **and** a two-user smoke harness | RLS is proven where it lives, and end to end against production. |
 | What F-01 asserts without domain tables | Fixture table in a rolled-back transaction, plus a catalog guard over all `public` tables | Proves the convention works today and enforces it on every future table. |
 | First migration | Revoke `anon` default privileges on future `public` tables and sequences | Real defense in depth that also exercises the production path. |
+| Table grants | `auto_expose_new_tables = false` locally; every table grants `authenticated` explicitly | Hosted Supabase stopped auto-granting new tables on 2026-10-30, so local and CI must match it. |
+| Gate on production migrations | `master` branch ruleset: PR plus required `ci` and `smoke`, no bypass | Builds ignores CI, so without it RLS checks and marker review don't gate production. |
 | Production smoke | Second auto-confirmed production smoke user; B credentials required in existing-account mode | Production isolation can't be skipped silently. |
 | CLI version | `supabase` devDependency pinned to 3.2.0 (same as CI) | One CLI version locally, in CI and in Builds. |
 
@@ -37,6 +39,7 @@ Every Builds deploy first applies pending migrations to production, behind a gua
 - two-user `smoke.mjs`
 - `scripts/db-deploy.mjs` (`db:deploy`)
 - Builds secret and deploy-command change
+- `master` branch ruleset (PR, with `ci` and `smoke` required)
 - CLAUDE.md and `deployment-plan.md` updates
 
 **Out of scope:**
@@ -46,11 +49,10 @@ Every Builds deploy first applies pending migrations to production, behind a gua
 - a shared SQL test-helper library
 - function `EXECUTE` revocation
 - sign-in redirect and sign-up changes (S-01)
-- branch protection
 
 ## Architecture / Approach
 
-push to `master` → Builds build command (`astro sync`, lint, check, build) → deploy command: `db:deploy` (env check → guard → `supabase db push --db-url $SUPABASE_DB_URL --yes` via the IPv4 session pooler) → `wrangler deploy`. A guard or push failure means no deploy.
+push to `master` → Builds build command (`astro sync`, lint, check, build) → deploy command: `db:deploy` (env check → guard → `supabase db push --remote=$SUPABASE_DB_URL --yes` via the IPv4 session pooler) → `wrangler deploy`. A guard or push failure means no deploy.
 
 CI (on PRs) runs `db:check`, then in the smoke job `supabase test db` (catalog guard and fixture isolation), then the two-user smoke test against the workerd preview.
 
@@ -61,7 +63,7 @@ CI (on PRs) runs `db:check`, then in the smoke job `supabase test db` (catalog g
 | 1. Migration conventions and guard | CLI 3.2.0, revoke-anon migration, `db:check` in CI, CLAUDE.md rules | Guard regex false positives (mitigated by the allowed `DROP POLICY` etc. and the marker) |
 | 2. pgTAP RLS tests in CI | Catalog guard plus fixture A/B isolation template, `test:db` | JWT-claim impersonation details in pgTAP |
 | 3. Two-user smoke harness | Per-user sessions, B credentials required in production mode, own-email assertion, slice extension point | Merge overlap with S-01's `smoke.mjs` edit |
-| 4. Production path via Builds | `db:deploy` wrapper; 👤 smoke user B, Builds secret, dry run, deploy-command switch, production verification | Secret not visible to the deploy command, or leaked into the log; Builds-image connectivity |
+| 4. Production path via Builds | `db:deploy` wrapper; 👤 `master` ruleset, smoke user B, Builds secret, dry run, deploy-command switch, production verification | Secret not visible to the deploy command, or leaked into the log; Builds-image connectivity |
 
 **Prerequisites:** Supabase dashboard access (DB password, Users), Cloudflare Builds settings access, password manager. Implementation happens on a feature branch with a PR (preview builds are off).
 
@@ -71,7 +73,7 @@ CI (on PRs) runs `db:check`, then in the smoke job `supabase test db` (catalog g
 
 - Assumes Builds "Variables and secrets" are visible to the deploy command. The fallback is to move `db:deploy` to the end of the build command.
 - Assumes the Builds image reaches the session pooler (IPv4) and that the `supabase` npm postinstall can download its binary there.
-- Auto-applied migrations replace the earlier "human-only data-dropping migrations" rule. The guard and marker are the new control, and a marker in a reviewed PR is the only path for a destructive change.
+- Auto-applied migrations replace the earlier "human-only data-dropping migrations" rule. The guard and marker are the new control, and the `master` ruleset makes a marker in a reviewed PR with green CI the only path for a destructive change.
 - If the DB password ever shows up in a Builds log, rotate it immediately.
 
 ## Success Criteria (Summary)
